@@ -30,6 +30,11 @@ export const useInfoStore = defineStore('info', () => {
       }
   )
 
+  // 计算属性 - 功能特性
+  const features = computed(() => infoConfig.value.features || [])
+
+  const actions = computed(() => infoConfig.value.actions || [])
+
   // 计算属性 - 页脚信息
   const footer = computed(() => ({
     copyright: '',
@@ -42,6 +47,10 @@ export const useInfoStore = defineStore('info', () => {
   function setInfoConfig(newConfig) {
     infoConfig.value = newConfig
     isLoaded.value = true
+  }
+
+  function setDebugMode(enabled) {
+    debugMode.value = enabled
   }
 
   function toggleDebugMode() {
@@ -74,6 +83,27 @@ export const useInfoStore = defineStore('info', () => {
     }
   }
 
+  async function reloadInfoConfig() {
+    try {
+      isLoading.value = true
+      const response = await brandApi.reloadInfoConfig()
+
+      if (response.success && response.data) {
+        setInfoConfig(response.data)
+        console.debug('信息配置重新加载成功:', response.data)
+        return response.data
+      } else {
+        console.warn('信息配置重新加载失败')
+        return null
+      }
+    } catch (error) {
+      console.error('重新加载信息配置时发生错误:', error)
+      return null
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     // 状态
     infoConfig,
@@ -84,10 +114,15 @@ export const useInfoStore = defineStore('info', () => {
     // 计算属性
     organization,
     branding,
+    features,
     footer,
+    actions,
 
     // 方法
+    setInfoConfig,
+    setDebugMode,
     toggleDebugMode,
-    loadInfoConfig
+    loadInfoConfig,
+    reloadInfoConfig
   }
 })

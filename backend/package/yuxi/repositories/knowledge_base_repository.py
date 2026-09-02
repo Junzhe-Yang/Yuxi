@@ -14,9 +14,9 @@ class KnowledgeBaseRepository:
             result = await session.execute(select(KnowledgeBase))
             return list(result.scalars().all())
 
-    async def get_by_kb_id(self, kb_id: str) -> KnowledgeBase | None:
+    async def get_by_id(self, db_id: str) -> KnowledgeBase | None:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.kb_id == kb_id))
+            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.db_id == db_id))
             return result.scalar_one_or_none()
 
     async def create(self, data: dict[str, Any]) -> KnowledgeBase:
@@ -25,9 +25,9 @@ class KnowledgeBaseRepository:
             session.add(kb)
         return kb
 
-    async def update(self, kb_id: str, data: dict[str, Any]) -> KnowledgeBase | None:
+    async def update(self, db_id: str, data: dict[str, Any]) -> KnowledgeBase | None:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.kb_id == kb_id))
+            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.db_id == db_id))
             kb = result.scalar_one_or_none()
             if kb is None:
                 return None
@@ -35,9 +35,9 @@ class KnowledgeBaseRepository:
                 setattr(kb, key, value)
         return kb
 
-    async def delete(self, kb_id: str) -> None:
+    async def delete(self, db_id: str) -> None:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.kb_id == kb_id))
+            result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.db_id == db_id))
             kb = result.scalar_one_or_none()
             if kb is not None:
                 await session.delete(kb)

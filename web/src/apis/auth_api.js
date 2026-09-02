@@ -2,8 +2,6 @@
  * 认证相关 API
  */
 
-import { apiAdminGet } from './base'
-
 async function parseErrorDetail(response, fallbackMessage) {
   const contentType = response.headers.get('content-type') || ''
 
@@ -51,7 +49,7 @@ async function getOIDCLoginUrl(redirectPath = '/') {
  *   token_type: string,
  *   user_id: number,
  *   username: string,
- *   uid: string,
+ *   user_id_login: string,
  *   phone_number: string | null,
  *   avatar: string | null,
  *   role: string,
@@ -59,10 +57,6 @@ async function getOIDCLoginUrl(redirectPath = '/') {
  *   department_name: string | null
  * }>}
  */
-async function getUserAccessOptions() {
-  return apiAdminGet('/api/auth/users/access-options')
-}
-
 async function exchangeOIDCCode(code) {
   const response = await fetch('/api/auth/oidc/exchange-code', {
     method: 'POST',
@@ -83,6 +77,5 @@ async function exchangeOIDCCode(code) {
 export const authApi = {
   getOIDCConfig,
   getOIDCLoginUrl,
-  getUserAccessOptions,
   exchangeOIDCCode
 }

@@ -49,6 +49,22 @@
             </div>
           </div>
         </template>
+        <div class="setting-row">
+          <div class="col-item">
+            <div class="setting-label">默认智能体</div>
+            <div class="setting-content">
+              <a-select
+                class="agent-select"
+                :value="agentStore.defaultAgentId"
+                :options="agentOptions"
+                :loading="isSettingDefaultAgent"
+                :disabled="isSettingDefaultAgent || !agentOptions.length"
+                placeholder="请选择默认智能体"
+                @change="handleDefaultAgentChange"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <template v-if="userStore.isSuperAdmin">
@@ -158,8 +174,10 @@
 </template>
 
 <script setup>
-import { computed, h } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
+import { message } from 'ant-design-vue'
 import { useConfigStore } from '@/stores/config'
+import { useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
 import { Globe } from 'lucide-vue-next'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -167,8 +185,16 @@ import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import RerankModelSelector from '@/components/RerankModelSelector.vue'
 
 const configStore = useConfigStore()
+const agentStore = useAgentStore()
 const userStore = useUserStore()
 const items = computed(() => configStore.config?._config_items || {})
+const isSettingDefaultAgent = ref(false)
+const agentOptions = computed(() =>
+  (agentStore.agents || []).map((agent) => ({
+    label: agent.name || 'Unknown',
+    value: agent.id
+  }))
+)
 
 const handleChange = (key, e) => {
   configStore.setConfigValue(key, e)
@@ -192,9 +218,30 @@ const handleContentGuardModelSelect = (spec) => {
   }
 }
 
+const handleDefaultAgentChange = async (agentId) => {
+  if (!agentId || agentId === agentStore.defaultAgentId) return
+
+  isSettingDefaultAgent.value = true
+  try {
+    await agentStore.setDefaultAgent(agentId)
+    message.success('默认智能体已更新')
+  } finally {
+    isSettingDefaultAgent.value = false
+  }
+}
+
 const openLink = (url) => {
   window.open(url, '_blank')
 }
+
+onMounted(async () => {
+  if (!agentStore.agents.length) {
+    await agentStore.fetchAgents()
+  }
+  if (!agentStore.defaultAgentId) {
+    await agentStore.fetchDefaultAgent()
+  }
+})
 </script>
 
 <style lang="less" scoped>

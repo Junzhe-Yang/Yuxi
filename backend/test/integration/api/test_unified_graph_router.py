@@ -1,123 +1,135 @@
-from __future__ import annotations
+"""
+Integration tests for the unified graph router endpoints.
+"""
 
-import uuid
+from __future__ import annotations
 
 import pytest
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
-async def _create_dify_database(test_client, admin_headers) -> str:
-    response = await test_client.post(
-        "/api/knowledge/databases",
-        json={
-            "database_name": f"pytest_graph_dify_{uuid.uuid4().hex[:8]}",
-            "description": "Graph router Dify negative test",
-            "kb_type": "dify",
-            "additional_params": {
-                "dify_api_url": "https://api.dify.ai/v1",
-                "dify_token": "test-token",
-                "dify_dataset_id": f"dataset-{uuid.uuid4().hex[:8]}",
-            },
-        },
-        headers=admin_headers,
-    )
-    assert response.status_code == 200, response.text
-    return response.json()["kb_id"]
-
-
-async def _delete_database(test_client, admin_headers, kb_id: str) -> None:
-    await test_client.delete(f"/api/knowledge/databases/{kb_id}", headers=admin_headers)
-
-
 async def test_graph_routes_require_auth(test_client):
+    """Test that graph endpoints require authentication."""
     response = await test_client.get("/api/graph/list")
     assert response.status_code == 401
 
 
 async def test_standard_user_cannot_access_graph_endpoints(test_client, standard_user):
+    """Test that standard users cannot access graph endpoints."""
     response = await test_client.get("/api/graph/list", headers=standard_user["headers"])
     assert response.status_code == 403
 
 
-async def test_get_graphs_list_only_returns_milvus(test_client, admin_headers, knowledge_database):
+async def test_get_graphs_list(test_client, admin_headers):
+    """Test retrieving the list of all graphs."""
     response = await test_client.get("/api/graph/list", headers=admin_headers)
-
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert isinstance(payload["data"], list)
-    assert payload["data"]
-    assert all(graph["type"] == "milvus" for graph in payload["data"])
-    assert any(graph["id"] == knowledge_database["kb_id"] for graph in payload["data"])
+    graphs = payload["data"]
+    assert isinstance(graphs, list)
+
+    # Check for the default upload graph
+    neo4j_graph = next((g for g in graphs if g["id"] == "neo4j"), None)
+    assert neo4j_graph is not None
+    assert neo4j_graph["type"] == "upload"
+
+    # Note: LightRAG graphs might be empty if none created, but we check structure
 
 
-@pytest.mark.parametrize("path", ["/api/graph/subgraph", "/api/graph/stats", "/api/graph/labels"])
-async def test_graph_endpoints_reject_non_milvus_types(test_client, admin_headers, path):
-    kb_id = await _create_dify_database(test_client, admin_headers)
-    try:
-        response = await test_client.get(path, params={"kb_id": kb_id}, headers=admin_headers)
-    finally:
-        await _delete_database(test_client, admin_headers, kb_id)
-
-    assert response.status_code == 404
-    assert "only supports Milvus" in response.text
-
-
-async def test_milvus_subgraph_endpoint(test_client, admin_headers, knowledge_database):
+async def test_get_subgraph_neo4j(test_client, admin_headers):
+    """Test unified subgraph query for Neo4j."""
+    # Query with a wildcard or a known node. Using "*" to get a sample.
     response = await test_client.get(
-        "/api/graph/subgraph",
-        params={"kb_id": knowledge_database["kb_id"], "node_label": "*", "max_nodes": 10},
-        headers=admin_headers,
+        "/api/graph/subgraph", params={"db_id": "neo4j", "node_label": "*", "max_nodes": 10}, headers=admin_headers
     )
-
-    assert response.status_code == 200, response.text
+    assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert "nodes" in payload["data"]
-    assert "edges" in payload["data"]
+    data = payload["data"]
+    assert "nodes" in data
+    assert "edges" in data
+    assert isinstance(data["nodes"], list)
 
 
-async def test_milvus_stats_endpoint(test_client, admin_headers, knowledge_database):
+async def test_get_subgraph_lightrag(test_client, admin_headers, knowledge_database):
+    """Test unified subgraph query for LightRAG."""
+    db_id = knowledge_database["db_id"]
     response = await test_client.get(
-        "/api/graph/stats",
-        params={"kb_id": knowledge_database["kb_id"]},
-        headers=admin_headers,
+        "/api/graph/subgraph", params={"db_id": db_id, "node_label": "*", "max_nodes": 10}, headers=admin_headers
     )
-
-    assert response.status_code == 200, response.text
+    assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert "total_nodes" in payload["data"]
-    assert "total_edges" in payload["data"]
-    assert "entity_types" in payload["data"]
+    data = payload["data"]
+    assert "nodes" in data
+    assert "edges" in data
 
 
-async def test_milvus_labels_endpoint(test_client, admin_headers, knowledge_database):
-    response = await test_client.get(
-        "/api/graph/labels",
-        params={"kb_id": knowledge_database["kb_id"]},
-        headers=admin_headers,
-    )
-
-    assert response.status_code == 200, response.text
+async def test_get_stats_neo4j(test_client, admin_headers):
+    """Test stats endpoint for Neo4j."""
+    response = await test_client.get("/api/graph/stats", params={"db_id": "neo4j"}, headers=admin_headers)
+    assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert "labels" in payload["data"]
-    assert isinstance(payload["data"]["labels"], list)
+    data = payload["data"]
+    assert isinstance(data, dict)
+    if data:
+        assert "total_nodes" in data
+        assert "total_edges" in data
+        assert "entity_types" in data
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/graph/neo4j/nodes",
-        "/api/graph/neo4j/node",
-        "/api/graph/neo4j/info",
-        "/api/graph/neo4j/index-entities",
-        "/api/graph/neo4j/add-entities",
-    ],
-)
-async def test_neo4j_upload_routes_are_removed(test_client, admin_headers, path):
-    method = test_client.post if path.endswith(("index-entities", "add-entities")) else test_client.get
-    response = await method(path, headers=admin_headers)
-    assert response.status_code == 404
+async def test_get_stats_lightrag(test_client, admin_headers, knowledge_database):
+    """Test stats endpoint for LightRAG."""
+    db_id = knowledge_database["db_id"]
+    response = await test_client.get("/api/graph/stats", params={"db_id": db_id}, headers=admin_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert "total_nodes" in data
+    assert "total_edges" in data
+    assert "entity_types" in data
+
+
+async def test_get_labels_neo4j(test_client, admin_headers):
+    """Test labels endpoint for Neo4j."""
+    response = await test_client.get("/api/graph/labels", params={"db_id": "neo4j"}, headers=admin_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert "labels" in data
+    assert isinstance(data["labels"], list)
+
+
+async def test_deprecated_neo4j_endpoints(test_client, admin_headers):
+    """Verify deprecated endpoints still work and return correct structure."""
+
+    # /neo4j/nodes
+    response = await test_client.get(
+        "/api/graph/neo4j/nodes", params={"kgdb_name": "neo4j", "num": 5}, headers=admin_headers
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    # Check compatibility structure
+    assert payload["success"] is True
+    assert "result" in payload
+    assert payload["message"] == "success"
+    assert "nodes" in payload["result"]
+
+    # /neo4j/node
+    # This might return empty if "NonExistentEntity" doesn't exist, but structure should be valid
+    response = await test_client.get(
+        "/api/graph/neo4j/node", params={"entity_name": "NonExistentEntity"}, headers=admin_headers
+    )
+    if response.status_code == 200:
+        payload = response.json()
+        assert payload["success"] is True
+        assert "result" in payload
+        assert payload["message"] == "success"
+    else:
+        assert response.status_code == 500
+        assert "向量索引不存在" in response.text or "未上传任何三元组" in response.text

@@ -29,8 +29,8 @@ async def oidc_session():
     await engine.dispose()
 
 
-async def _create_user(session, uid: str = "alice") -> User:
-    user = User(username="alice", uid=uid, password_hash="x", role="user", is_deleted=0)
+async def _create_user(session, user_id: str = "alice") -> User:
+    user = User(username="alice", user_id=user_id, password_hash="x", role="user", is_deleted=0)
     session.add(user)
     await session.commit()
     await session.refresh(user)
@@ -46,7 +46,7 @@ async def test_find_user_by_oidc_sub_resolves_placeholder_when_sub_contains_colo
 
     assert resolved is not None
     assert resolved.id == user.id
-    assert resolved.uid == user.uid
+    assert resolved.user_id == user.user_id
     assert resolved.is_deleted == 0
 
 
@@ -61,7 +61,7 @@ async def test_find_deleted_oidc_user_by_sub_resolves_deleted_target_when_sub_co
 
     assert resolved is not None
     assert resolved.id == user.id
-    assert resolved.uid == user.uid
+    assert resolved.user_id == user.user_id
     assert resolved.is_deleted == 1
 
 

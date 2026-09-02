@@ -23,7 +23,7 @@ def utc_now() -> dt.datetime:
 
 
 def utc_now_naive() -> dt.datetime:
-    """Return the current UTC time as a naive datetime (for DB fields without timezone)."""
+    """Return the current UTC time as a naive datetime (for legacy DB fields)."""
     return dt.datetime.now(UTC).replace(tzinfo=None)
 
 
@@ -36,7 +36,7 @@ def ensure_utc(value: dt.datetime) -> dt.datetime:
     """
     Convert a datetime to UTC.
 
-    Naive values are assumed to be in Asia/Shanghai.
+    Naive values are assumed to be in Asia/Shanghai to preserve legacy data.
     """
     if value.tzinfo is None:
         value = value.replace(tzinfo=SHANGHAI_TZ)
@@ -47,7 +47,7 @@ def ensure_shanghai(value: dt.datetime) -> dt.datetime:
     """
     Convert a datetime to Asia/Shanghai.
 
-    Naive values are assumed to be in Asia/Shanghai.
+    Naive values are assumed to be in Asia/Shanghai (legacy behaviour).
     """
     if value.tzinfo is None:
         value = value.replace(tzinfo=SHANGHAI_TZ)
@@ -120,7 +120,7 @@ def format_utc_datetime(value: dt.datetime | None) -> str | None:
     Format a datetime to UTC ISO 8601 string, handling naive datetimes.
 
     Returns None for None input.
-    Naive datetimes are assumed to be in UTC.
+    Naive datetimes are assumed to be in UTC (legacy behavior).
     """
     if value is None:
         return None

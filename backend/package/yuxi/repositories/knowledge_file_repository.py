@@ -20,9 +20,9 @@ class KnowledgeFileRepository:
             result = await session.execute(select(KnowledgeFile).where(KnowledgeFile.file_id == file_id))
             return result.scalar_one_or_none()
 
-    async def list_by_kb_id(self, kb_id: str) -> list[KnowledgeFile]:
+    async def list_by_db_id(self, db_id: str) -> list[KnowledgeFile]:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(KnowledgeFile).where(KnowledgeFile.kb_id == kb_id))
+            result = await session.execute(select(KnowledgeFile).where(KnowledgeFile.db_id == db_id))
             return list(result.scalars().all())
 
     async def upsert(self, file_id: str, data: dict[str, Any]) -> KnowledgeFile:
@@ -44,8 +44,8 @@ class KnowledgeFileRepository:
             if record is not None:
                 await session.delete(record)
 
-    async def delete_by_kb_id(self, kb_id: str) -> None:
+    async def delete_by_db_id(self, db_id: str) -> None:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(KnowledgeFile).where(KnowledgeFile.kb_id == kb_id))
+            result = await session.execute(select(KnowledgeFile).where(KnowledgeFile.db_id == db_id))
             for record in result.scalars().all():
                 await session.delete(record)

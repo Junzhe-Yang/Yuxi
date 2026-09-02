@@ -1,75 +1,61 @@
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware, TodoListMiddleware
 
-from yuxi.agents import BaseAgent, load_chat_model, resolve_chat_model_spec
-from yuxi.agents.backends import create_agent_filesystem_middleware
-from yuxi.agents.context import (
-    DEFAULT_SUMMARY_KEEP_MESSAGES,
-    DEFAULT_SUMMARY_THRESHOLD_K,
-    DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT,
-    DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS,
-    DEFAULT_YUXI_SUMMARY_PROMPT,
-    prepare_agent_runtime_context,
-)
+from yuxi.agents import BaseAgent, BaseState, load_chat_model
+from yuxi.agents.backends import create_agent_composite_backend
 from yuxi.agents.middlewares import (
-    TokenUsageMiddleware,
-    create_summary_middleware,
+    RuntimeConfigMiddleware,
+    SummaryOffloadMiddleware,
     save_attachments_to_fs,
 )
-from yuxi.agents.middlewares.knowledge_base import KnowledgeBaseMiddleware
-from yuxi.agents.middlewares.skills import SkillsMiddleware
-from yuxi.agents.middlewares.subagent_task import create_subagent_task_middleware
-from yuxi.agents.toolkits.service import resolve_configured_runtime_tools
+from yuxi.agents.middlewares.knowledge_base_middleware import KnowledgeBaseMiddleware
+from yuxi.agents.middlewares.skills_middleware import SkillsMiddleware
+from yuxi.services.subagent_service import get_subagents_from_names
 
-from .context import ChatBotContext
 from .prompt import TODO_MID_PROMPT, build_prompt_with_context
-from .state import ChatBotState
 
 
 async def _build_middlewares(context):
     """构建中间件列表"""
     # summary middleware
-    # 主 Agent 上下文优化：默认 100k tokens 触发压缩，压缩后保留最近 10 条消息
-    summary_trigger_tokens = getattr(context, "summary_threshold", DEFAULT_SUMMARY_THRESHOLD_K) * 1024
-    summary_keep_messages = getattr(context, "summary_keep_messages", DEFAULT_SUMMARY_KEEP_MESSAGES)
-    summary_prompt = getattr(context, "summary_prompt", None) or DEFAULT_YUXI_SUMMARY_PROMPT
-    summary_tool_result_token_limit = getattr(
-        context,
-        "summary_tool_result_token_limit",
-        DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT,
-    )
-    model_spec = resolve_chat_model_spec(context.model)
-    summary_middleware = create_summary_middleware(
-        model=load_chat_model(fully_specified_name=model_spec),
-        trigger=("tokens", summary_trigger_tokens),
-        keep=("messages", summary_keep_messages),
-        summary_prompt=summary_prompt,
+    # 主 Agent 上下文优化：90k tokens 触发压缩（128k context window 的 70%）
+    summary_middleware = SummaryOffloadMiddleware(
+        model=load_chat_model(fully_specified_name=context.model),
+        trigger=("tokens", getattr(context, "summary_threshold", 100) * 1024),
         trim_tokens_to_summarize=4000,
-        tool_result_offload_token_limit=summary_tool_result_token_limit,
+        summary_offload_threshold=500,
+        max_retention_ratio=0.5,
     )
 
-    middlewares = [
-        create_agent_filesystem_middleware(
-            getattr(context, "tool_token_limit", DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS) * 1024,
-            context=context,
-        ),
-        save_attachments_to_fs,
-        KnowledgeBaseMiddleware(),
-        SkillsMiddleware(),
-    ]
-    subagent_middleware = await create_subagent_task_middleware(context)
-    if subagent_middleware:
-        middlewares.append(subagent_middleware)
-    middlewares.extend(
-        [
-            summary_middleware,
-            TodoListMiddleware(system_prompt=TODO_MID_PROMPT),
+    # subagents
+    subagents = await get_subagents_from_names(context.subagents)
+    subagents_middleware = SubAgentMiddleware(
+        default_model=load_chat_model(fully_specified_name=context.subagents_model),
+        subagents=subagents,
+        general_purpose_agent=True,
+        default_middleware=[
+            FilesystemMiddleware(backend=create_agent_composite_backend),  # 文件系统后端
             PatchToolCallsMiddleware(),
-            ModelRetryMiddleware(max_retries=getattr(context, "model_retry_times", 2)),
-            TokenUsageMiddleware(),
-        ]
+            summary_middleware,
+        ],
     )
+    # all middlewares
+    middlewares = [
+        FilesystemMiddleware(backend=create_agent_composite_backend),  # 文件系统后端
+        save_attachments_to_fs,  # 附件注入提示词
+        KnowledgeBaseMiddleware(),  # 知识库工具
+        RuntimeConfigMiddleware(),  # 运行时配置应用（模型/工具/MCP/提示词）
+        SkillsMiddleware(),  # Skills 中间件（提示词注入、依赖展开、动态激活）
+        subagents_middleware,
+        summary_middleware,
+        TodoListMiddleware(system_prompt=TODO_MID_PROMPT),  # 待办事项中间件
+        PatchToolCallsMiddleware(),
+        ModelRetryMiddleware(),  # 模型重试中间件
+    ]
+
     return middlewares
 
 
@@ -77,26 +63,28 @@ class ChatbotAgent(BaseAgent):
     name = "智能助手"
     description = "基础的对话机器人，可以回答问题，可在配置中启用需要的工具。"
     capabilities = ["file_upload", "files"]  # 支持文件上传功能
-    context_schema = ChatBotContext
+    metadata = {
+        "examples": [
+            "你好，请介绍一下你自己",
+            "帮我写一封商务邮件",
+            "解释一下什么是机器学习",
+            "创建一个冒泡排序 python 并保存结果",
+        ]
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     async def get_graph(self, context=None, **kwargs):
 
-        context = await prepare_agent_runtime_context(
-            context or self.context_schema(),
-            context_schema=self.context_schema,
-        )
+        context = context or self.context_schema()  # 获取上下文配置
 
         # 使用 create_agent 创建智能体
-        model_spec = resolve_chat_model_spec(context.model)
         graph = create_agent(
-            model=load_chat_model(fully_specified_name=model_spec),
-            tools=await resolve_configured_runtime_tools(context),
+            model=load_chat_model(fully_specified_name=context.model),
             system_prompt=build_prompt_with_context(context),
             middleware=await _build_middlewares(context),
-            state_schema=ChatBotState,
+            state_schema=BaseState,
             checkpointer=await self._get_checkpointer(),
         )
 

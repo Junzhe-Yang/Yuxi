@@ -11,7 +11,8 @@ from sqlalchemy.orm import declarative_base
 from yuxi.storage.postgres.models_business import Base as BusinessBase
 from yuxi.storage.postgres.models_knowledge import Base as KnowledgeBase
 from yuxi.utils import logger
-from yuxi.utils.singleton import SingletonMeta
+
+from server.utils.singleton import SingletonMeta
 
 # 合并两个 Base
 CombinedBase = declarative_base()
@@ -121,16 +122,12 @@ class PostgresManager(metaclass=SingletonMeta):
         """确保知识库 schema 包含所有必要字段"""
         self._check_initialized()
         stmts = [
-            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS embedding_model_spec VARCHAR(512)",
-            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS llm_model_spec VARCHAR(512)",
-            "ALTER TABLE IF EXISTS knowledge_bases DROP COLUMN IF EXISTS embed_info",
-            "ALTER TABLE IF EXISTS knowledge_bases DROP COLUMN IF EXISTS llm_info",
+            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS embed_info JSONB",
+            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS llm_info JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS query_params JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS additional_params JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS share_config JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS mindmap JSONB",
-            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS mindmap_file_ids JSONB",
-            "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS mindmap_metadata JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS sample_questions JSONB",
             "ALTER TABLE IF EXISTS knowledge_bases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS parent_id VARCHAR(64)",
@@ -142,8 +139,6 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS status VARCHAR(32)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS content_hash VARCHAR(128)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS file_size BIGINT",
-            "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS chunk_count INTEGER DEFAULT 0",
-            "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS token_count BIGINT DEFAULT 0",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS content_type VARCHAR(64)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS processing_params JSONB",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS is_folder BOOLEAN",
@@ -151,218 +146,37 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
-            "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS build_metadata JSONB",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS name VARCHAR(255)",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS metrics JSONB",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS overall_score DOUBLE PRECISION",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS total_items INTEGER",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS completed_items INTEGER",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS evaluation_runs ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS gold_chunk_ids JSONB",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS gold_answer TEXT",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS generated_answer TEXT",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS retrieved_chunks JSONB",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS metrics JSONB",
-            "ALTER TABLE IF EXISTS evaluation_run_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
-            """
-            CREATE TABLE IF NOT EXISTS evaluation_datasets (
-                id SERIAL PRIMARY KEY,
-                dataset_id VARCHAR(64) NOT NULL UNIQUE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                item_count INTEGER DEFAULT 0,
-                has_gold_chunks BOOLEAN DEFAULT FALSE,
-                has_gold_answers BOOLEAN DEFAULT FALSE,
-                build_metadata JSONB,
-                created_by VARCHAR(64),
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS evaluation_dataset_items (
-                id SERIAL PRIMARY KEY,
-                item_id VARCHAR(64) NOT NULL UNIQUE,
-                dataset_id VARCHAR(64) NOT NULL REFERENCES evaluation_datasets(dataset_id) ON DELETE CASCADE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                item_index INTEGER NOT NULL,
-                query_text TEXT NOT NULL,
-                gold_chunk_ids JSONB,
-                gold_answer TEXT,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_evaluation_dataset_items_dataset_index UNIQUE (dataset_id, item_index)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS evaluation_runs (
-                id SERIAL PRIMARY KEY,
-                run_id VARCHAR(64) NOT NULL UNIQUE,
-                name VARCHAR(255) NOT NULL,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                dataset_id VARCHAR(64) REFERENCES evaluation_datasets(dataset_id) ON DELETE SET NULL,
-                status VARCHAR(32) DEFAULT 'running',
-                retrieval_config JSONB,
-                metrics JSONB,
-                overall_score DOUBLE PRECISION,
-                total_items INTEGER DEFAULT 0,
-                completed_items INTEGER DEFAULT 0,
-                started_at TIMESTAMPTZ DEFAULT NOW(),
-                completed_at TIMESTAMPTZ,
-                created_by VARCHAR(64)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS evaluation_run_items (
-                id SERIAL PRIMARY KEY,
-                run_id VARCHAR(64) NOT NULL REFERENCES evaluation_runs(run_id) ON DELETE CASCADE,
-                dataset_item_id VARCHAR(64) REFERENCES evaluation_dataset_items(item_id) ON DELETE SET NULL,
-                item_index INTEGER NOT NULL,
-                query_text TEXT NOT NULL,
-                gold_chunk_ids JSONB,
-                gold_answer TEXT,
-                generated_answer TEXT,
-                retrieved_chunks JSONB,
-                metrics JSONB,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_evaluation_run_items_run_index UNIQUE (run_id, item_index)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_chunks (
-                id SERIAL PRIMARY KEY,
-                chunk_id VARCHAR(128) NOT NULL UNIQUE,
-                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                chunk_index INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                start_char_pos INTEGER,
-                end_char_pos INTEGER,
-                start_token_pos INTEGER,
-                end_token_pos INTEGER,
-                graph_indexed BOOLEAN DEFAULT FALSE,
-                ent_ids JSONB,
-                tags JSONB,
-                extraction_result JSONB,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
-            "ALTER TABLE IF EXISTS knowledge_chunks ADD COLUMN IF NOT EXISTS extraction_result JSONB",
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_graph_entities (
-                id SERIAL PRIMARY KEY,
-                entity_id VARCHAR(64) NOT NULL UNIQUE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                normalized_name VARCHAR(512) NOT NULL,
-                label VARCHAR(128) NOT NULL,
-                name VARCHAR(512) NOT NULL,
-                attributes JSONB,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_knowledge_graph_entities_identity UNIQUE (kb_id, normalized_name, label)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_graph_entity_mentions (
-                id SERIAL PRIMARY KEY,
-                entity_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_entities(entity_id) ON DELETE CASCADE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
-                chunk_id VARCHAR(128) NOT NULL REFERENCES knowledge_chunks(chunk_id) ON DELETE CASCADE,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_knowledge_graph_entity_mentions_entity_chunk UNIQUE (entity_id, chunk_id)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_graph_triples (
-                id SERIAL PRIMARY KEY,
-                triple_id VARCHAR(64) NOT NULL UNIQUE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                source_entity_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_entities(entity_id) ON DELETE CASCADE,
-                target_entity_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_entities(entity_id) ON DELETE CASCADE,
-                relation_type VARCHAR(256) NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_graph_triple_mentions (
-                id SERIAL PRIMARY KEY,
-                triple_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_triples(triple_id) ON DELETE CASCADE,
-                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
-                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
-                chunk_id VARCHAR(128) NOT NULL REFERENCES knowledge_chunks(chunk_id) ON DELETE CASCADE,
-                text TEXT,
-                extractor_type VARCHAR(128),
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_knowledge_graph_triple_mentions_triple_chunk UNIQUE (triple_id, chunk_id)
-            )
-            """,
-            "ALTER TABLE IF EXISTS knowledge_bases ALTER COLUMN kb_id TYPE VARCHAR(80)",
-            "ALTER TABLE IF EXISTS knowledge_files ALTER COLUMN kb_id TYPE VARCHAR(80)",
-            "ALTER TABLE IF EXISTS evaluation_datasets ALTER COLUMN kb_id TYPE VARCHAR(80)",
-            "ALTER TABLE IF EXISTS evaluation_dataset_items ALTER COLUMN kb_id TYPE VARCHAR(80)",
-            "ALTER TABLE IF EXISTS evaluation_runs ALTER COLUMN kb_id TYPE VARCHAR(80)",
+            "ALTER TABLE IF EXISTS evaluation_benchmarks ADD COLUMN IF NOT EXISTS data_file_path VARCHAR(1024)",
+            "ALTER TABLE IF EXISTS evaluation_benchmarks ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
+            "ALTER TABLE IF EXISTS evaluation_benchmarks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS metrics JSONB",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS overall_score DOUBLE PRECISION",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS total_questions INTEGER",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS completed_questions INTEGER",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+            "ALTER TABLE IF EXISTS evaluation_results ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
+            "ALTER TABLE IF EXISTS evaluation_result_details ADD COLUMN IF NOT EXISTS gold_chunk_ids JSONB",
+            "ALTER TABLE IF EXISTS evaluation_result_details ADD COLUMN IF NOT EXISTS gold_answer TEXT",
+            "ALTER TABLE IF EXISTS evaluation_result_details ADD COLUMN IF NOT EXISTS generated_answer TEXT",
+            "ALTER TABLE IF EXISTS evaluation_result_details ADD COLUMN IF NOT EXISTS retrieved_chunks JSONB",
+            "ALTER TABLE IF EXISTS evaluation_result_details ADD COLUMN IF NOT EXISTS metrics JSONB",
+            # 扩展 db_id 字段长度以支持最长 75 字符的 ID（kb_private_ + 64字符hash）
+            "ALTER TABLE IF EXISTS knowledge_bases ALTER COLUMN db_id TYPE VARCHAR(80)",
+            "ALTER TABLE IF EXISTS knowledge_files ALTER COLUMN db_id TYPE VARCHAR(80)",
+            "ALTER TABLE IF EXISTS evaluation_benchmarks ALTER COLUMN db_id TYPE VARCHAR(80)",
+            "ALTER TABLE IF EXISTS evaluation_results ALTER COLUMN db_id TYPE VARCHAR(80)",
             "CREATE INDEX IF NOT EXISTS idx_kb_type ON knowledge_bases(kb_type)",
             "CREATE INDEX IF NOT EXISTS idx_kb_name ON knowledge_bases(name)",
-            "CREATE INDEX IF NOT EXISTS idx_kf_kb_id ON knowledge_files(kb_id)",
+            "CREATE INDEX IF NOT EXISTS idx_kf_db_id ON knowledge_files(db_id)",
             "CREATE INDEX IF NOT EXISTS idx_kf_parent ON knowledge_files(parent_id)",
             "CREATE INDEX IF NOT EXISTS idx_kf_status ON knowledge_files(status)",
             "CREATE INDEX IF NOT EXISTS idx_kf_hash ON knowledge_files(content_hash)",
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_datasets_kb_id ON evaluation_datasets(kb_id)",
-            (
-                "CREATE INDEX IF NOT EXISTS ix_evaluation_dataset_items_dataset_index "
-                "ON evaluation_dataset_items(dataset_id, item_index)"
-            ),
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_dataset_items_kb_id ON evaluation_dataset_items(kb_id)",
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_runs_kb_id ON evaluation_runs(kb_id)",
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_runs_status ON evaluation_runs(status)",
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_runs_started ON evaluation_runs(started_at DESC)",
-            "CREATE INDEX IF NOT EXISTS ix_evaluation_run_items_run_index ON evaluation_run_items(run_id, item_index)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_chunk_id ON knowledge_chunks(chunk_id)",
-            "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_file_id ON knowledge_chunks(file_id)",
-            "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_kb_id ON knowledge_chunks(kb_id)",
-            "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_graph_indexed ON knowledge_chunks(graph_indexed)",
-            (
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_graph_entities_entity_id "
-                "ON knowledge_graph_entities(entity_id)"
-            ),
-            "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_entities_kb_id ON knowledge_graph_entities(kb_id)",
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_entity_mentions_kb_id "
-                "ON knowledge_graph_entity_mentions(kb_id)"
-            ),
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_entity_mentions_file_id "
-                "ON knowledge_graph_entity_mentions(file_id)"
-            ),
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_entity_mentions_chunk_id "
-                "ON knowledge_graph_entity_mentions(chunk_id)"
-            ),
-            (
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_graph_triples_triple_id "
-                "ON knowledge_graph_triples(triple_id)"
-            ),
-            "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_triples_kb_id ON knowledge_graph_triples(kb_id)",
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_triple_mentions_kb_id "
-                "ON knowledge_graph_triple_mentions(kb_id)"
-            ),
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_triple_mentions_file_id "
-                "ON knowledge_graph_triple_mentions(file_id)"
-            ),
-            (
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_triple_mentions_chunk_id "
-                "ON knowledge_graph_triple_mentions(chunk_id)"
-            ),
+            "CREATE INDEX IF NOT EXISTS idx_eb_db_id ON evaluation_benchmarks(db_id)",
+            "CREATE INDEX IF NOT EXISTS idx_er_db_id ON evaluation_results(db_id)",
+            "CREATE INDEX IF NOT EXISTS idx_er_status ON evaluation_results(status)",
+            "CREATE INDEX IF NOT EXISTS idx_er_started ON evaluation_results(started_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_erd_task ON evaluation_result_details(task_id)",
         ]
 
         async with self.async_engine.begin() as conn:
@@ -370,62 +184,55 @@ class PostgresManager(metaclass=SingletonMeta):
                 await conn.execute(text(stmt))
 
     async def ensure_business_schema(self):
-        """确保业务 schema 包含后续新增字段（运行时 schema 演进）。"""
+        """确保业务 schema 包含后续新增字段（兼容已存在表）。"""
         self._check_initialized()
         stmts = [
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS tool_dependencies JSONB DEFAULT '[]'::jsonb",
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS mcp_dependencies JSONB DEFAULT '[]'::jsonb",
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS skill_dependencies JSONB DEFAULT '[]'::jsonb",
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS version VARCHAR(64)",
-            "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS source_type VARCHAR(32) NOT NULL DEFAULT 'upload'",
-            (
-                "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS share_config JSONB NOT NULL "
-                'DEFAULT \'{"access_level": "user", "department_ids": [], "user_uids": []}\'::jsonb'
-            ),
-            "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS content_hash VARCHAR(128)",
+            "ALTER TABLE IF EXISTS subagents ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE",
             "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE IF EXISTS mcp_servers ADD COLUMN IF NOT EXISTS env JSONB",
+            "ALTER TABLE IF EXISTS mcp_servers ADD COLUMN IF NOT EXISTS auth_config_json JSONB",
             """
-            CREATE TABLE IF NOT EXISTS agent_envs (
+            CREATE TABLE IF NOT EXISTS mcp_connections (
                 id SERIAL PRIMARY KEY,
-                uid VARCHAR NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
-                env JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_agent_envs_uid UNIQUE (uid)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS agents (
-                id SERIAL PRIMARY KEY,
-                slug VARCHAR(80) NOT NULL UNIQUE,
-                backend_id VARCHAR(64) NOT NULL,
-                name VARCHAR(100) NOT NULL,
-                description TEXT,
-                icon VARCHAR(255),
-                pics JSONB NOT NULL DEFAULT '[]'::jsonb,
-                config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                share_config JSONB NOT NULL DEFAULT '{}'::jsonb,
-                is_default BOOLEAN NOT NULL DEFAULT FALSE,
-                is_subagent BOOLEAN NOT NULL DEFAULT FALSE,
+                server_name VARCHAR(100) NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
+                scope_type VARCHAR(16) NOT NULL,
+                scope_id VARCHAR(64) NOT NULL,
+                display_name VARCHAR(128),
+                external_subject VARCHAR(255),
+                status VARCHAR(32) NOT NULL DEFAULT 'active',
+                credential_blob TEXT,
+                meta_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_by VARCHAR(64),
                 updated_by VARCHAR(64),
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_mcp_connections_server_scope UNIQUE (server_name, scope_type, scope_id)
             )
             """,
-            "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS backend_id VARCHAR(64)",
-            "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS share_config JSONB NOT NULL DEFAULT '{}'::jsonb",
-            "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS is_subagent BOOLEAN NOT NULL DEFAULT FALSE",
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_agents_slug ON agents(slug)",
-            "CREATE INDEX IF NOT EXISTS ix_agents_backend_id ON agents(backend_id)",
-            "CREATE INDEX IF NOT EXISTS ix_agents_is_subagent ON agents(is_subagent)",
-            "CREATE INDEX IF NOT EXISTS ix_agents_created_by ON agents(created_by)",
+            # 安全添加 CHECK 约束（PostgreSQL 不支持 ALTER TABLE ADD CONSTRAINT IF NOT EXISTS）
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_agents_default
-            ON agents(is_default)
-            WHERE is_default IS TRUE
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_mcp_connections_scope_type'
+                ) THEN
+                    ALTER TABLE mcp_connections ADD CONSTRAINT ck_mcp_connections_scope_type
+                        CHECK (scope_type IN ('system', 'department', 'user'));
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_mcp_connections_status'
+                ) THEN
+                    ALTER TABLE mcp_connections ADD CONSTRAINT ck_mcp_connections_status
+                        CHECK (status IN ('active', 'disabled', 'reauth_required', 'invalid'));
+                END IF;
+            END;
+            $$;
             """,
             """
             CREATE TABLE IF NOT EXISTS model_providers (
@@ -454,21 +261,37 @@ class PostgresManager(metaclass=SingletonMeta):
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
             """,
-            "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS parent_agent_run_id VARCHAR(64)",
-            "CREATE INDEX IF NOT EXISTS idx_agent_runs_uid_created ON agent_runs(uid, created_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id VARCHAR(64) PRIMARY KEY,
+                thread_id VARCHAR(64) NOT NULL,
+                agent_id VARCHAR(64) NOT NULL,
+                user_id VARCHAR(64) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                request_id VARCHAR(64) NOT NULL UNIQUE,
+                input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                error_type VARCHAR(64),
+                error_message TEXT,
+                started_at TIMESTAMPTZ,
+                finished_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_agent_runs_user_created ON agent_runs(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_agent_runs_thread_created ON agent_runs(thread_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_agent_runs_status_updated ON agent_runs(status, updated_at)",
-            """
-            CREATE INDEX IF NOT EXISTS idx_agent_runs_parent_agent_run_created
-            ON agent_runs(parent_agent_run_id, created_at DESC)
-            """,
-            """
-            CREATE INDEX IF NOT EXISTS idx_agent_runs_subagent_lookup
-            ON agent_runs(uid, thread_id, run_type, created_at DESC)
-            """,
             "CREATE INDEX IF NOT EXISTS ix_conversations_is_pinned ON conversations(is_pinned)",
+            "CREATE INDEX IF NOT EXISTS idx_mcp_connections_status ON mcp_connections(status)",
+            "CREATE INDEX IF NOT EXISTS idx_mcp_connections_subject ON mcp_connections(external_subject)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_model_providers_provider_id ON model_providers(provider_id)",
             "CREATE INDEX IF NOT EXISTS ix_model_providers_is_enabled ON model_providers(is_enabled)",
+            # Undo/Fork 递归 CTE 性能索引
+            "CREATE INDEX IF NOT EXISTS idx_checkpoints_thread_parent ON checkpoints(thread_id, parent_checkpoint_id)",
+            (
+                "CREATE INDEX IF NOT EXISTS idx_checkpoints_thread_request "
+                "ON checkpoints(thread_id, (metadata->>'request_id'))"
+            ),
         ]
         async with self.async_engine.begin() as conn:
             for stmt in stmts:
@@ -520,6 +343,18 @@ class PostgresManager(metaclass=SingletonMeta):
             result = await session.execute(select(func.count(User.id)))
             count = result.scalar()
             return count == 0
+
+    async def execute(self, statement):
+        """直接执行 SQL 语句（用于迁移脚本）"""
+        self._check_initialized()
+        async with self.get_async_session_context() as session:
+            return await session.execute(statement)
+
+    async def add(self, instance):
+        """添加实例到会话（用于迁移脚本）"""
+        self._check_initialized()
+        async with self.get_async_session_context() as session:
+            session.add(instance)
 
     async def commit(self):
         """提交当前会话"""

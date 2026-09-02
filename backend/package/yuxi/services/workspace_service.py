@@ -12,21 +12,19 @@ import aiofiles
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from yuxi.agents.backends.sandbox.paths import _global_user_data_dir, ensure_workspace_default_files
-from yuxi.services.file_preview import detect_preview_type
-from yuxi.services.mention_search_service import invalidate_workspace_mention_cache
+from yuxi.services.upload_utils import write_upload_to_buffer
+from yuxi.services.viewer_filesystem_service import _detect_preview_type
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.datetime_utils import utc_isoformat_from_timestamp
 from yuxi.utils.paths import VIRTUAL_PATH_WORKSPACE, WORKSPACE_DIR_NAME
-from yuxi.utils.upload_utils import MAX_UPLOAD_SIZE_BYTES, write_upload_to_buffer
 
 EDITABLE_WORKSPACE_SUFFIXES = {".md", ".markdown", ".mdx", ".txt"}
-MAX_WORKSPACE_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_BYTES
-MAX_WORKSPACE_UPLOAD_FILES = 50
+MAX_WORKSPACE_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
 
 
 def _workspace_root(user: User) -> Path:
     try:
-        user_data_root = _global_user_data_dir(str(user.uid)).resolve()
+        user_data_root = _global_user_data_dir(str(user.id)).resolve()
         root = user_data_root / WORKSPACE_DIR_NAME
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
@@ -140,15 +138,6 @@ async def list_workspace_tree(
     return {"entries": entries}
 
 
-def resolve_workspace_file_path(*, path: str, current_user: User) -> Path:
-    target = _resolve_workspace_path(current_user, path)
-    if not target.exists():
-        raise HTTPException(status_code=404, detail=f"工作区文件不存在: {path}")
-    if not target.is_file():
-        raise HTTPException(status_code=400, detail=f"当前路径不是文件: {path}")
-    return target
-
-
 async def read_workspace_file_content(*, path: str, current_user: User) -> dict:
     target = _resolve_workspace_path(current_user, path)
     if not target.exists():
@@ -157,7 +146,7 @@ async def read_workspace_file_content(*, path: str, current_user: User) -> dict:
         raise HTTPException(status_code=400, detail="当前路径是目录")
 
     raw_content = await asyncio.to_thread(target.read_bytes)
-    preview_type, supported, message = detect_preview_type(path, raw_content)
+    preview_type, supported, message = _detect_preview_type(path, raw_content)
     if preview_type in {"image", "pdf"} or not supported:
         return {
             "content": None,
@@ -193,7 +182,7 @@ async def write_workspace_file_content(*, path: str, content: str, current_user:
         raise HTTPException(status_code=400, detail="当前文件类型不支持编辑")
 
     raw_content = await asyncio.to_thread(target.read_bytes)
-    preview_type, supported, _message = detect_preview_type(path, raw_content)
+    preview_type, supported, _message = _detect_preview_type(path, raw_content)
     if preview_type not in {"markdown", "text"} or not supported:
         raise HTTPException(status_code=400, detail="当前文件类型不支持编辑")
     try:
@@ -229,7 +218,6 @@ async def delete_workspace_path(*, path: str, current_user: User) -> dict:
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    await invalidate_workspace_mention_cache(str(current_user.uid))
     return {"success": True, "path": _normalize_workspace_path(path).as_posix()}
 
 
@@ -246,11 +234,14 @@ async def create_workspace_directory(*, parent_path: str, name: str, current_use
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    await invalidate_workspace_mention_cache(str(current_user.uid))
     return {"success": True, "entry": _entry_for_path(root, target)}
 
 
-async def _write_workspace_upload(file: UploadFile, target: Path) -> None:
+async def upload_workspace_file(*, parent_path: str, file: UploadFile, current_user: User) -> dict:
+    root = _workspace_root(current_user)
+    file_name = _validate_child_name(Path(file.filename or "").name, field_name="文件名")
+    parent = _resolve_parent_directory(current_user, parent_path)
+    target = _resolve_new_child(root, parent, file_name)
     created_file = False
     upload_completed = False
 
@@ -275,38 +266,7 @@ async def _write_workspace_upload(file: UploadFile, target: Path) -> None:
             with contextlib.suppress(OSError):
                 await asyncio.to_thread(target.unlink)
 
-
-async def upload_workspace_files(*, parent_path: str, files: list[UploadFile], current_user: User) -> dict:
-    if not files:
-        raise HTTPException(status_code=400, detail="请选择至少一个文件")
-    if len(files) > MAX_WORKSPACE_UPLOAD_FILES:
-        raise HTTPException(status_code=400, detail=f"一次最多上传 {MAX_WORKSPACE_UPLOAD_FILES} 个文件")
-
-    root = _workspace_root(current_user)
-    parent = _resolve_parent_directory(current_user, parent_path)
-    seen_names = set()
-    upload_targets: list[tuple[UploadFile, Path]] = []
-
-    for file in files:
-        file_name = _validate_child_name(Path(file.filename or "").name, field_name="文件名")
-        if file_name in seen_names:
-            raise HTTPException(status_code=400, detail=f"选择的文件中存在重复文件名: {file_name}")
-        seen_names.add(file_name)
-        upload_targets.append((file, _resolve_new_child(root, parent, file_name)))
-
-    completed_targets: list[Path] = []
-    try:
-        for file, target in upload_targets:
-            await _write_workspace_upload(file, target)
-            completed_targets.append(target)
-    except HTTPException:
-        for target in completed_targets:
-            with contextlib.suppress(OSError):
-                await asyncio.to_thread(target.unlink)
-        raise
-
-    await invalidate_workspace_mention_cache(str(current_user.uid))
-    return {"success": True, "entries": [_entry_for_path(root, target) for _file, target in upload_targets]}
+    return {"success": True, "entry": _entry_for_path(root, target)}
 
 
 async def download_workspace_file(*, path: str, current_user: User) -> StreamingResponse | FileResponse:

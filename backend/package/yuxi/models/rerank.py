@@ -1,4 +1,5 @@
 import asyncio
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -6,7 +7,7 @@ from typing import Any
 import aiohttp
 import numpy as np
 
-from yuxi.models.providers.cache import model_cache
+from yuxi import config
 from yuxi.utils import get_docker_safe_url, logger
 
 
@@ -64,7 +65,7 @@ class BaseReranker(ABC):
                 scores = await self._batch_rerank(query, batch, max_length=max_length)
                 all_scores.extend(scores)
                 logger.debug(f"Reranking batch {batch_no}/{total_batches} completed")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.error(f"Reranking batch {batch_no} failed: {exc}")
                 all_scores.extend([0.5] * len(batch))
 
@@ -104,19 +105,6 @@ class BaseReranker(ABC):
         except RuntimeError:
             return asyncio.run(self.acompute_score(sentence_pairs, batch_size, max_length, normalize))
         raise RuntimeError("compute_score cannot be used while an event loop is running. Use acompute_score instead.")
-
-    async def test_connection(self) -> tuple[bool, str]:
-        try:
-            scores = await self._batch_rerank("test query", ["test document"], max_length=128)
-            if scores:
-                return True, "连接正常"
-            return False, "响应无效"
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Rerank connection test failed: {error_msg}")
-            return False, error_msg
-        finally:
-            await self.aclose()
 
     async def aclose(self) -> None:
         if self.session and not self.session.closed:
@@ -165,30 +153,17 @@ class DashscopeReranker(BaseReranker):
         return list(result.get("output", {}).get("results", []))
 
 
-def get_reranker(model_id: str, **kwargs):
-    info = model_cache.get_model_info(model_id)
-    if not info:
-        raise ValueError(f"Unknown reranker model spec: {model_id}")
-    if info.model_type != "rerank":
-        raise ValueError(f"Model {model_id} is not a rerank model (type={info.model_type})")
-    if not info.api_key:
-        raise ValueError(f"{info.display_name} api_key is required")
+def get_reranker(model_id, **kwargs):
+    support_rerankers = config.reranker_names.keys()
+    assert model_id in support_rerankers, f"Unsupported Reranker: {model_id}, only support {support_rerankers}"
 
-    parameters = dict(info.extra.get("parameters") or {})
-    parameters.update(kwargs.pop("parameters", {}) or {})
-    reranker_kwargs = {**kwargs, "parameters": parameters}
-    protocol = info.extra.get("rerank_protocol") or info.extra.get("protocol")
-
-    if protocol == "dashscope":
-        return DashscopeReranker(
-            model_name=info.model_id,
-            api_key=info.api_key,
-            base_url=info.base_url,
-            **reranker_kwargs,
-        )
-    return OpenAIReranker(
-        model_name=info.model_id,
-        api_key=info.api_key,
-        base_url=info.base_url,
-        **reranker_kwargs,
-    )
+    model_info = config.reranker_names[model_id]
+    base_url = model_info.base_url
+    api_key = os.getenv(model_info.api_key) or model_info.api_key
+    assert api_key, f"{model_info.name} api_key is required"
+    provider = model_id.split("/", maxsplit=1)[0] if "/" in model_id else ""
+    if provider in {"siliconflow", "vllm"}:
+        return OpenAIReranker(model_name=model_info.name, api_key=api_key, base_url=base_url, **kwargs)
+    if provider == "dashscope":
+        return DashscopeReranker(model_name=model_info.name, api_key=api_key, base_url=base_url, **kwargs)
+    return OpenAIReranker(model_name=model_info.name, api_key=api_key, base_url=base_url, **kwargs)

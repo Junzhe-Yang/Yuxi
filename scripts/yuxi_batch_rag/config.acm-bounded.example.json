@@ -1,0 +1,35 @@
+{
+  "base_url": "https://your-yuxi.example.com",
+  "auth": {
+    "mode": "login",
+    "login_id_env": "YUXI_LOGIN_ID",
+    "password_env": "YUXI_PASSWORD"
+  },
+  "agent_id": "MedicationReviewAcmBoundedAgent",
+  "input_file": "input.example.json",
+  "output_dir": "../../outputs/acm-bounded-dev",
+  "concurrency": 1,
+  "request_timeout_seconds": 60,
+  "run_timeout_seconds": 7200,
+  "max_attempts": 2,
+  "max_sse_reconnects": 8,
+  "sse_reconnect_delay_seconds": 1,
+  "verify_tls": true,
+  "write_raw_events": true,
+  "allow_debug_stopped": false,
+  "variants": {
+    "bounded_shadow25": {
+      "agent_config_id": 801,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_method_family": "acm-prim-rag-v9",
+      "expected_method_version": "acm-prim-rag-v9-bounded-controller-v1-shadow_top25-vector",
+      "expected_effective_profile": "full",
+      "expected_acm_protocol": "adaptive_coverage",
+      "expected_v7_retrieval_depth": "shadow_top25",
+      "expected_trace_schema_version": "13.0",
+      "expected_controller_version": "acm-bounded-controller-v1",
+      "expected_context_view_version": "acm-bounded-context-view-v1",
+      "expected_model_context_window_tokens": 262144
+    }
+  }
+}

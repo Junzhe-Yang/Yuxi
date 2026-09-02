@@ -23,21 +23,6 @@ def _iter_sections(markdown_content: str) -> list[tuple[str, str]]:
     return sections
 
 
-def _ensure_chunk_token_limit(chunks: list[str], chunk_token_num: int) -> list[str]:
-    max_tokens = int(chunk_token_num or 0)
-    normalized = [chunk.strip() for chunk in chunks if chunk and chunk.strip()]
-    if max_tokens <= 0:
-        return normalized
-
-    protected: list[str] = []
-    for chunk in normalized:
-        if nlp.count_tokens(chunk) <= max_tokens:
-            protected.append(chunk)
-        else:
-            protected.extend(nlp.hard_split_by_token_limit(chunk, max_tokens))
-    return protected
-
-
 def chunk_markdown(markdown_content: str, parser_config: dict[str, Any] | None = None) -> list[str]:
     parser_config = parser_config or {}
 
@@ -66,14 +51,11 @@ def chunk_markdown(markdown_content: str, parser_config: dict[str, Any] | None =
         )
 
     if chunks:
-        return _ensure_chunk_token_limit(chunks, chunk_token_num)
+        return chunks
 
-    return _ensure_chunk_token_limit(
-        nlp.naive_merge(
-            sections,
-            chunk_token_num=chunk_token_num,
-            delimiter=delimiter,
-            overlapped_percent=overlapped_percent,
-        ),
-        chunk_token_num,
+    return nlp.naive_merge(
+        sections,
+        chunk_token_num=chunk_token_num,
+        delimiter=delimiter,
+        overlapped_percent=overlapped_percent,
     )

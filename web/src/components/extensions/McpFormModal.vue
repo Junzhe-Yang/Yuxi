@@ -9,16 +9,20 @@
     width="560px"
     class="server-modal"
   >
-    <a-form layout="vertical" class="extension-form">
-      <a-form-item label="MCP 标识" required class="form-item">
+    <div class="mode-switch">
+      <a-radio-group v-model:value="formMode" button-style="solid" size="small">
+        <a-radio-button value="form">表单模式</a-radio-button>
+        <a-radio-button value="json">JSON 模式</a-radio-button>
+      </a-radio-group>
+    </div>
+
+    <a-form v-if="formMode === 'form'" layout="vertical" class="extension-form">
+      <a-form-item label="MCP 名称" required class="form-item">
         <a-input
-          v-model:value="form.slug"
-          placeholder="请输入 MCP 稳定标识，如 my-mcp"
+          v-model:value="form.name"
+          placeholder="请输入 MCP 名称（唯一标识）"
           :disabled="editMode"
         />
-      </a-form-item>
-      <a-form-item label="MCP 名称" required class="form-item">
-        <a-input v-model:value="form.name" placeholder="请输入 MCP 展示名称" />
       </a-form-item>
       <a-form-item label="描述" class="form-item">
         <a-input v-model:value="form.description" placeholder="请输入 MCP 描述" />
@@ -98,6 +102,19 @@
         />
       </a-form-item>
     </a-form>
+
+    <div v-else class="json-mode">
+      <a-textarea
+        v-model:value="jsonContent"
+        :rows="15"
+        placeholder="请输入 JSON 配置"
+        class="json-textarea"
+      />
+      <div class="json-actions">
+        <a-button size="small" @click="formatJson">格式化</a-button>
+        <a-button size="small" @click="parseJsonToForm">解析到表单</a-button>
+      </div>
+    </div>
   </a-modal>
 </template>
 
@@ -121,9 +138,10 @@ const visible = computed({
 })
 
 const formLoading = ref(false)
+const formMode = ref('form')
+const jsonContent = ref('')
 
 const form = reactive({
-  slug: '',
   name: '',
   description: '',
   transport: 'streamable_http',
@@ -149,8 +167,8 @@ watch(
   () => props.open,
   (val) => {
     if (val && props.editData) {
+      formMode.value = 'form'
       Object.assign(form, {
-        slug: props.editData.slug || '',
         name: props.editData.name || '',
         description: props.editData.description || '',
         transport: props.editData.transport || 'streamable_http',
@@ -164,9 +182,10 @@ watch(
         tags: props.editData.tags || [],
         icon: props.editData.icon || ''
       })
+      jsonContent.value = props.editData ? JSON.stringify(props.editData, null, 2) : ''
     } else if (val && !props.editData) {
+      formMode.value = 'form'
       Object.assign(form, {
-        slug: '',
         name: '',
         description: '',
         transport: 'streamable_http',
@@ -180,41 +199,80 @@ watch(
         tags: [],
         icon: ''
       })
+      jsonContent.value = ''
     }
   },
   { immediate: true }
 )
 
+const formatJson = () => {
+  try {
+    const obj = JSON.parse(jsonContent.value)
+    jsonContent.value = JSON.stringify(obj, null, 2)
+  } catch {
+    message.error('JSON 格式错误，无法格式化')
+  }
+}
+
+const parseJsonToForm = () => {
+  try {
+    const obj = JSON.parse(jsonContent.value)
+    Object.assign(form, {
+      name: obj.name || '',
+      description: obj.description || '',
+      transport: obj.transport || 'streamable_http',
+      url: obj.url || '',
+      command: obj.command || '',
+      args: obj.args || [],
+      env: obj.env || null,
+      headersText: obj.headers ? JSON.stringify(obj.headers, null, 2) : '',
+      timeout: obj.timeout || null,
+      sse_read_timeout: obj.sse_read_timeout || null,
+      tags: obj.tags || [],
+      icon: obj.icon || ''
+    })
+    formMode.value = 'form'
+    message.success('已解析到表单')
+  } catch {
+    message.error('JSON 格式错误')
+  }
+}
+
 const handleFormSubmit = async () => {
   try {
     formLoading.value = true
-    let headers = null
-    if (form.headersText.trim()) {
+    let data
+    if (formMode.value === 'json') {
       try {
-        headers = JSON.parse(form.headersText)
+        data = JSON.parse(jsonContent.value)
       } catch {
-        message.error('请求头 JSON 格式错误')
+        message.error('JSON 格式错误')
         return
       }
-    }
-    const data = {
-      slug: form.slug,
-      name: form.name,
-      description: form.description || null,
-      transport: form.transport,
-      url: form.url || null,
-      command: form.command || null,
-      args: form.args.length > 0 ? form.args : null,
-      env: form.env,
-      headers,
-      timeout: form.timeout || null,
-      sse_read_timeout: form.sse_read_timeout || null,
-      tags: form.tags.length > 0 ? form.tags : null,
-      icon: form.icon || null
-    }
-    if (!data.slug?.trim()) {
-      message.error('MCP 标识不能为空')
-      return
+    } else {
+      let headers = null
+      if (form.headersText.trim()) {
+        try {
+          headers = JSON.parse(form.headersText)
+        } catch {
+          message.error('请求头 JSON 格式错误')
+          return
+        }
+      }
+      data = {
+        name: form.name,
+        description: form.description || null,
+        transport: form.transport,
+        url: form.url || null,
+        command: form.command || null,
+        args: form.args.length > 0 ? form.args : null,
+        env: form.env,
+        headers,
+        timeout: form.timeout || null,
+        sse_read_timeout: form.sse_read_timeout || null,
+        tags: form.tags.length > 0 ? form.tags : null,
+        icon: form.icon || null
+      }
     }
     if (!data.name?.trim()) {
       message.error('MCP 名称不能为空')
@@ -238,8 +296,7 @@ const handleFormSubmit = async () => {
     }
 
     if (props.editMode) {
-      const { slug, ...updateData } = data
-      const result = await mcpApi.updateMcpServer(props.editData?.slug || slug, updateData)
+      const result = await mcpApi.updateMcpServer(data.name, data)
       if (result.success) {
         message.success('MCP 更新成功')
       } else {
@@ -267,4 +324,21 @@ const handleFormSubmit = async () => {
 
 <style lang="less" scoped>
 @import '@/assets/css/extensions.less';
+
+.mode-switch {
+  margin-bottom: 16px;
+  text-align: right;
+}
+
+.json-mode {
+  .json-textarea {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+  }
+  .json-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+  }
+}
 </style>

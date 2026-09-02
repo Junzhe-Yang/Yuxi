@@ -1,80 +1,65 @@
 import { message } from 'ant-design-vue'
 import { handleChatError } from '@/utils/errorHandler'
 import { unref } from 'vue'
-import { extractPendingInterrupt } from '@/composables/useApproval'
 
-const serializeToolArgs = (args) => {
-  if (typeof args === 'string') return args
-  if (args === undefined || args === null) return ''
-  return JSON.stringify(args)
-}
-
-const streamEventToMessageChunk = (streamEvent) => {
-  if (!streamEvent || typeof streamEvent !== 'object') return null
-  const messageId = streamEvent.message_id
-  if (!messageId) return null
-
-  if (streamEvent.type === 'message_delta') {
-    const chunk = {
-      id: messageId,
-      type: 'AIMessageChunk',
-      content: streamEvent.content || ''
-    }
-    if (streamEvent.reasoning_content) {
-      chunk.reasoning_content = streamEvent.reasoning_content
-    }
-    if (streamEvent.additional_reasoning_content) {
-      chunk.additional_kwargs = { reasoning_content: streamEvent.additional_reasoning_content }
-    }
-    return chunk
+/**
+ * Process a streaming response from the server
+ * @param {Response} response - The fetch response object
+ * @param {Function} onChunk - Callback function for each parsed JSON chunk. Return true to stop processing.
+ */
+const processStreamResponse = async (response, onChunk) => {
+  if (!response || !response.body) {
+    console.warn('Invalid response or missing body for stream processing')
+    return
   }
 
-  if (streamEvent.type === 'tool_call' || streamEvent.type === 'tool_call_delta') {
-    return {
-      id: messageId,
-      type: 'AIMessageChunk',
-      content: '',
-      tool_call_chunks: [
-        {
-          index: streamEvent.index || 0,
-          id: streamEvent.tool_call_id,
-          name: streamEvent.name,
-          args:
-            streamEvent.type === 'tool_call_delta'
-              ? streamEvent.args_delta || ''
-              : serializeToolArgs(streamEvent.args)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let stopProcessing = false
+
+  try {
+    while (!stopProcessing) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmedLine = line.trim()
+        if (trimmedLine) {
+          try {
+            const chunk = JSON.parse(trimmedLine)
+            if (onChunk && onChunk(chunk)) {
+              stopProcessing = true
+              break
+            }
+          } catch (e) {
+            console.warn('Failed to parse stream chunk JSON:', e, 'Line:', trimmedLine)
+          }
         }
-      ]
+      }
+    }
+
+    if (!stopProcessing && buffer.trim()) {
+      try {
+        const chunk = JSON.parse(buffer.trim())
+        if (onChunk) {
+          onChunk(chunk)
+        }
+      } catch (e) {
+        console.warn('Failed to parse final stream chunk JSON:', e)
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {
+      // Ignore errors on releasing lock
     }
   }
-
-  return null
-}
-
-const loadingMessageChunk = (chunk) => {
-  const semanticChunk = streamEventToMessageChunk(chunk?.stream_event)
-  if (semanticChunk) return semanticChunk
-
-  const msg = chunk?.msg
-  if (msg?.event) return null
-  return msg || null
-}
-
-// 工具结果不走 messages 流，而是以 method=tools 的 stream_event 事件返回（tool-started/tool-finished）。
-// 取出 tool-finished 的 output（一条 ToolMessage 字典），交给 msgChunks 与 AI 消息按 tool_call_id 关联。
-const toolFinishedMessage = (chunk) => {
-  const streamEvent = chunk?.event
-  if (!streamEvent || streamEvent.method !== 'tools') return null
-
-  const data = streamEvent.data
-  if (!data || data.event !== 'tool-finished') return null
-
-  const output = data.output
-  if (!output || typeof output !== 'object') return null
-
-  const id = output.id || output.tool_call_id || data.tool_call_id
-  if (!id) return null
-  return { ...output, type: 'tool', id }
 }
 
 export function useAgentStreamHandler({
@@ -103,24 +88,16 @@ export function useAgentStreamHandler({
           const resolvedRequestId = request_id || threadState.pendingRequestId
           if (resolvedRequestId) {
             threadState.pendingRequestId = resolvedRequestId
-          }
-          if (resolvedRequestId && msg && msg.type !== 'system') {
-            const localHumanMessage = threadState.onGoingConv.msgChunks[resolvedRequestId]?.find(
-              (item) => item?.type === 'human' || item?.role === 'user'
-            )
-            const initMessage = {
-              ...msg,
-              id: msg?.id || resolvedRequestId,
-              extra_metadata: {
-                ...(msg?.extra_metadata || {}),
-                request_id: resolvedRequestId
+            threadState.onGoingConv.msgChunks[resolvedRequestId] = [
+              {
+                ...msg,
+                id: msg?.id || resolvedRequestId,
+                extra_metadata: {
+                  ...(msg?.extra_metadata || {}),
+                  request_id: resolvedRequestId
+                }
               }
-            }
-            if (localHumanMessage?.image_content && !initMessage.image_content) {
-              initMessage.message_type = localHumanMessage.message_type || initMessage.message_type
-              initMessage.image_content = localHumanMessage.image_content
-            }
-            threadState.onGoingConv.msgChunks[resolvedRequestId] = [initMessage]
+            ]
           }
         }
         // 只有在服务端确认 init 后，才展示“正在回复”的加载动画。
@@ -128,31 +105,14 @@ export function useAgentStreamHandler({
         return false
 
       case 'loading':
-        {
-          const messageChunk = loadingMessageChunk(chunk)
-          if (messageChunk?.id) {
-            if (streamSmoother) {
-              streamSmoother.pushChunk(messageChunk, threadId)
-            } else {
-              if (!threadState.onGoingConv.msgChunks[messageChunk.id]) {
-                threadState.onGoingConv.msgChunks[messageChunk.id] = []
-              }
-              threadState.onGoingConv.msgChunks[messageChunk.id].push(messageChunk)
+        if (msg.id) {
+          if (streamSmoother) {
+            streamSmoother.pushChunk(msg, threadId)
+          } else {
+            if (!threadState.onGoingConv.msgChunks[msg.id]) {
+              threadState.onGoingConv.msgChunks[msg.id] = []
             }
-          }
-        }
-        return false
-
-      case 'stream_event':
-        {
-          // 工具结果需立即落地（不经平滑层），写入 msgChunks 后由 convertToolResultToMessages
-          // 按 tool_call_id 关联到对应 AI 消息的 tool_call，驱动其完成态。
-          const toolMessage = toolFinishedMessage(chunk)
-          if (toolMessage) {
-            if (!threadState.onGoingConv.msgChunks[toolMessage.id]) {
-              threadState.onGoingConv.msgChunks[toolMessage.id] = []
-            }
-            threadState.onGoingConv.msgChunks[toolMessage.id].push(toolMessage)
+            threadState.onGoingConv.msgChunks[msg.id].push(msg)
           }
         }
         return false
@@ -165,7 +125,12 @@ export function useAgentStreamHandler({
           threadState.isStreaming = false
           threadState.replyLoadingVisible = false
           threadState.pendingRequestId = null
-          threadState.pendingInterrupt = null
+
+          // Abort the stream controller to stop processing further events
+          if (threadState.streamAbortController) {
+            threadState.streamAbortController.abort()
+            threadState.streamAbortController = null
+          }
         }
         return true
 
@@ -216,7 +181,6 @@ export function useAgentStreamHandler({
           threadState.isStreaming = false
           threadState.replyLoadingVisible = false
           threadState.pendingRequestId = null
-          threadState.pendingInterrupt = null
           console.log(`${debugPrefix}[finished]`, {
             threadId,
             currentAgentId: unref(currentAgentId),
@@ -248,10 +212,6 @@ export function useAgentStreamHandler({
           threadState.isStreaming = false
           threadState.replyLoadingVisible = false
           threadState.pendingRequestId = null
-          const pendingInterrupt = extractPendingInterrupt(chunk, threadId)
-          if (pendingInterrupt) {
-            threadState.pendingInterrupt = pendingInterrupt
-          }
         }
         // 如果有 message 字段，显示提示（例如：敏感内容检测）
         if (chunkMessage) {
@@ -269,7 +229,37 @@ export function useAgentStreamHandler({
     return false
   }
 
+  /**
+   * Process the full agent stream response
+   * @param {Response} response - The fetch response
+   * @param {String} threadId - The thread ID
+   * @param {Function} [onChunk] - Optional callback for each chunk (e.g. for logging)
+   */
+  const handleAgentResponse = async (response, threadId, onChunk = null) => {
+    console.log(`${debugPrefix}[stream_start]`, {
+      threadId,
+      currentAgentId: unref(currentAgentId),
+      supportsFiles: unref(supportsFiles)
+    })
+    await processStreamResponse(response, (chunk) => {
+      if (chunk?.status && chunk.status !== 'loading') {
+        console.log(`${debugPrefix}[chunk_status]`, {
+          threadId,
+          status: chunk.status,
+          requestId: chunk.request_id
+        })
+      }
+      if (onChunk) onChunk(chunk)
+      return handleStreamChunk(chunk, threadId)
+    })
+    console.log(`${debugPrefix}[stream_end]`, {
+      threadId,
+      currentAgentId: unref(currentAgentId)
+    })
+  }
+
   return {
-    handleStreamChunk
+    handleStreamChunk,
+    handleAgentResponse
   }
 }

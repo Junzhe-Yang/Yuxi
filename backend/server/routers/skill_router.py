@@ -10,47 +10,33 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.utils.auth_middleware import get_admin_user, get_db, get_required_user
-from yuxi.agents.skills.service import (
-    confirm_skill_install_draft,
+from yuxi.services.remote_skill_install_service import (
+    install_remote_skill,
+    install_remote_skills_batch,
+    list_remote_skills,
+)
+from yuxi.services.skill_service import (
+    BuiltinSkillUpdateConflictError,
     create_skill_node,
     delete_skill,
     delete_skill_node,
     delete_skills_batch,
-    discard_skill_install_draft,
     export_skill_zip,
-    get_allowed_skill_access_levels,
-    get_manageable_skill_or_raise,
-    get_management_readable_skill_or_raise,
     get_skill_dependency_options,
     get_skill_tree,
-    init_builtin_skills,
-    is_builtin_skill,
-    list_accessible_skills,
+    import_skill_zip,
+    install_builtin_skill,
+    list_builtin_skill_specs,
     list_skills,
-    list_visible_skills_for_management,
-    prepare_remote_skill_install,
-    prepare_skill_upload,
     read_skill_file,
+    update_builtin_skill,
     update_skill_dependencies,
-    update_skill_enabled,
     update_skill_file,
-    update_skill_share_config,
-    user_can_manage_skill,
 )
-from yuxi.agents.skills.remote_install import list_remote_skills, search_remote_skills
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.logging_config import logger
 
 skills = APIRouter(prefix="/system/skills", tags=["skills"])
-user_skills = APIRouter(prefix="/skills", tags=["skills"])
-
-
-class ShareConfigPayload(BaseModel):
-    share_config: dict | None = Field(None, description="共享权限配置")
-
-
-class SkillEnabledUpdateRequest(BaseModel):
-    enabled: bool = Field(..., description="是否启用")
 
 
 class SkillNodeCreateRequest(BaseModel):
@@ -70,12 +56,20 @@ class SkillDependenciesUpdateRequest(BaseModel):
     skill_dependencies: list[str] = Field(default_factory=list, description="依赖的其他 skill slug 列表")
 
 
+class BuiltinSkillUpdateRequest(BaseModel):
+    force: bool = Field(False, description="是否强制覆盖本地已安装内容")
+
+
 class RemoteSkillSourceRequest(BaseModel):
     source: str = Field(..., description="skills 仓库来源，如 owner/repo 或 GitHub URL")
 
 
-class RemoteSkillPrepareRequest(RemoteSkillSourceRequest):
-    skills: list[str] = Field(..., description="需要安装的 skill 名称列表")
+class RemoteSkillInstallRequest(RemoteSkillSourceRequest):
+    skill: str = Field(..., description="需要安装的 skill 名称")
+
+
+class RemoteSkillBatchInstallRequest(RemoteSkillSourceRequest):
+    skills: list[str] = Field(..., description="需要安装的 skill 名称列表（批量，共享一次克隆）")
 
 
 class RemoteSkillSearchRequest(BaseModel):
@@ -86,13 +80,9 @@ class SkillBatchDeleteRequest(BaseModel):
     slugs: list[str] = Field(..., max_length=50, description="需要批量删除的 skill slug 列表，最多支持 50 个")
 
 
-class SkillDraftConfirmRequest(BaseModel):
-    share_config: dict | None = Field(None, description="共享权限配置")
-
-
 def _raise_from_value_error(e: ValueError) -> None:
     message = str(e)
-    status_code = 404 if "不存在" in message or "无权" in message else 400
+    status_code = 404 if "不存在" in message else 400
     raise HTTPException(status_code=status_code, detail=message)
 
 
@@ -103,163 +93,44 @@ def _cleanup_export_file(path: str) -> None:
         logger.warning(f"Failed to cleanup exported skill archive '{path}': {e}")
 
 
-def _summarize_results(results: list[dict]) -> dict[str, int]:
-    return {
-        "total": len(results),
-        "success": sum(1 for item in results if item.get("success")),
-        "failed": sum(1 for item in results if not item.get("success")),
-    }
-
-
-def _serialize_skill_for_user(item, user: User) -> dict:
-    data = item.to_dict()
-    data["can_manage"] = user_can_manage_skill(user, item)
-    data["is_builtin"] = is_builtin_skill(item)
-    return data
-
-
-@user_skills.get("/accessible")
-async def list_accessible_skills_route(
-    current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        items = await list_accessible_skills(db, current_user)
-        return {"success": True, "data": [_serialize_skill_for_user(item, current_user) for item in items]}
-    except Exception as e:
-        logger.error(f"Failed to list accessible skills: {e}")
-        raise HTTPException(status_code=500, detail="获取可访问 Skills 失败")
-
-
-@user_skills.post("/import/prepare")
-async def prepare_skill_upload_route(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        data = await prepare_skill_upload(
-            db,
-            filename=file.filename or "",
-            file_bytes=await file.read(),
-            operator=current_user,
-        )
-        return {"success": True, "data": data}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to prepare skill upload: {e}")
-        raise HTTPException(status_code=500, detail="解析上传 Skill 失败")
-
-
-@user_skills.post("/remote/list")
-async def list_remote_skills_route(payload: RemoteSkillSourceRequest, _current_user: User = Depends(get_required_user)):
-    try:
-        return {"success": True, "data": await list_remote_skills(payload.source)}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to list remote skills from '{payload.source}': {e}")
-        raise HTTPException(status_code=500, detail="获取远程 skills 列表失败")
-
-
-@user_skills.post("/remote/search")
-async def search_remote_skills_route(
-    payload: RemoteSkillSearchRequest, _current_user: User = Depends(get_required_user)
-):
-    try:
-        return {"success": True, "data": await search_remote_skills(payload.query)}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to search remote skills with query '{payload.query}': {e}")
-        raise HTTPException(status_code=500, detail="搜索远程 skills 失败")
-
-
-@user_skills.post("/remote/prepare")
-async def prepare_remote_skills_route(
-    payload: RemoteSkillPrepareRequest,
-    current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        data = await prepare_remote_skill_install(
-            db,
-            source=payload.source,
-            skills=payload.skills,
-            operator=current_user,
-        )
-        return {"success": True, "data": data}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to prepare remote skills from '{payload.source}': {e}")
-        raise HTTPException(status_code=500, detail="解析远程 Skills 失败")
-
-
-@user_skills.post("/install-drafts/{draft_id}/confirm")
-async def confirm_skill_install_draft_route(
-    draft_id: str,
-    payload: SkillDraftConfirmRequest,
-    current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        results = await confirm_skill_install_draft(
-            db,
-            draft_id=draft_id,
-            share_config=payload.share_config,
-            operator=current_user,
-        )
-        return {"success": True, "data": results, "summary": _summarize_results(results)}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to confirm skill install draft '{draft_id}': {e}")
-        raise HTTPException(status_code=500, detail="确认安装 Skill 失败")
-
-
-@user_skills.delete("/install-drafts/{draft_id}")
-async def discard_skill_install_draft_route(draft_id: str, current_user: User = Depends(get_required_user)):
-    try:
-        await discard_skill_install_draft(draft_id=draft_id, operator=current_user)
-        return {"success": True}
-    except ValueError as e:
-        _raise_from_value_error(e)
-    except Exception as e:
-        logger.error(f"Failed to discard skill install draft '{draft_id}': {e}")
-        raise HTTPException(status_code=500, detail="取消安装 Skill 失败")
-
-
 @skills.get("")
 async def list_skills_route(
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """获取技能列表（普通用户仅获取白名单脱敏数据，管理员可读完整元数据）。"""
     try:
-        items = await list_visible_skills_for_management(db, current_user)
-        return {
-            "success": True,
-            "data": [_serialize_skill_for_user(item, current_user) for item in items],
-            "allowed_access_levels": get_allowed_skill_access_levels(current_user),
-        }
+        items = await list_skills(db)
+
+        # NOTE: 针对管理员与常规登录用户分流返回，防止物理目录结构（dir_path）与系统审计信息越权暴露给常规用户
+        if current_user.role in ["admin", "superadmin"]:
+            return {"success": True, "data": [item.to_dict() for item in items]}
+
+        safe_data = []
+        for item in items:
+            safe_data.append(
+                {
+                    "slug": item.slug,
+                    "name": item.name,
+                    "description": item.description,
+                    "version": item.version,
+                    "is_builtin": item.is_builtin,
+                }
+            )
+        return {"success": True, "data": safe_data}
     except Exception as e:
-        logger.error(f"Failed to list manageable skills: {e}")
+        logger.error(f"Failed to list skills: {e}")
         raise HTTPException(status_code=500, detail="获取技能列表失败")
 
 
 @skills.get("/dependency-options")
 async def get_skill_dependency_options_route(
-    slug: str | None = Query(None, description="当前 Skill slug"),
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """获取 skill 依赖项可选列表（管理员）。"""
     try:
-        if slug:
-            await get_manageable_skill_or_raise(db, current_user, slug)
-        return {"success": True, "data": await get_skill_dependency_options(db, current_user, slug)}
-    except ValueError as e:
-        _raise_from_value_error(e)
+        return {"success": True, "data": await get_skill_dependency_options(db)}
     except Exception as e:
         logger.error(f"Failed to get skill dependency options: {e}")
         raise HTTPException(status_code=500, detail="获取 skill 依赖选项失败")
@@ -271,75 +142,208 @@ async def list_builtin_skills_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        items = [item for item in await list_skills(db) if item.source_type == "builtin"]
-        return {"success": True, "data": [item.to_dict() for item in items]}
+        installed_map = {item.slug: item for item in await list_skills(db)}
+        data = []
+        for spec in list_builtin_skill_specs():
+            installed = installed_map.get(spec["slug"])
+            status = "not_installed"
+            if installed:
+                status = "installed"
+                if installed.version != spec["version"] or installed.content_hash != spec["content_hash"]:
+                    status = "update_available"
+            data.append(
+                {
+                    "slug": spec["slug"],
+                    "name": spec["name"],
+                    "description": spec["description"],
+                    "version": spec["version"],
+                    "status": status,
+                    "installed_record": installed.to_dict() if installed else None,
+                }
+            )
+        return {"success": True, "data": data}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to list builtin skills: {e}")
         raise HTTPException(status_code=500, detail="获取内置 skill 列表失败")
 
 
-@skills.post("/builtin/sync")
-async def sync_builtin_skills_route(
+@skills.post("/builtin/{slug}/install")
+async def install_builtin_skill_route(
+    slug: str,
     current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        items = await init_builtin_skills(db, created_by=current_user.uid)
-        return {"success": True, "data": [item.to_dict() for item in items]}
+        item = await install_builtin_skill(db, slug, installed_by=current_user.username)
+        return {"success": True, "data": item.to_dict()}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to sync builtin skills: {e}")
-        raise HTTPException(status_code=500, detail="同步内置 skill 失败")
+        logger.error(f"Failed to install builtin skill '{slug}': {e}")
+        raise HTTPException(status_code=500, detail="安装内置 skill 失败")
 
 
-@skills.put("/{slug}/share-config")
-async def update_skill_share_config_route(
+@skills.post("/builtin/{slug}/update")
+async def update_builtin_skill_route(
     slug: str,
-    payload: ShareConfigPayload,
-    current_user: User = Depends(get_required_user),
+    payload: BuiltinSkillUpdateRequest,
+    current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        item = await update_skill_share_config(db, slug=slug, share_config=payload.share_config, operator=current_user)
-        return {"success": True, "data": _serialize_skill_for_user(item, current_user)}
+        item = await update_builtin_skill(
+            db,
+            slug,
+            force=payload.force,
+            updated_by=current_user.username,
+        )
+        return {"success": True, "data": item.to_dict()}
+    except BuiltinSkillUpdateConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"needs_confirm": True, "message": str(e)},
+        )
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to update skill share config '{slug}': {e}")
-        raise HTTPException(status_code=500, detail="更新 Skill 共享范围失败")
+        logger.error(f"Failed to update builtin skill '{slug}': {e}")
+        raise HTTPException(status_code=500, detail="更新内置 skill 失败")
 
 
-@skills.put("/{slug}/enabled")
-async def update_skill_enabled_route(
-    slug: str,
-    payload: SkillEnabledUpdateRequest,
-    current_user: User = Depends(get_required_user),
+@skills.post("/import")
+async def import_skill_route(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """导入技能包（支持 ZIP 或单个 SKILL.md，管理员）。"""
+    try:
+        file_bytes = await file.read()
+        item = await import_skill_zip(
+            db,
+            filename=file.filename or "",
+            file_bytes=file_bytes,
+            created_by=current_user.username,
+        )
+        return {"success": True, "data": item.to_dict()}
+    except ValueError as e:
+        _raise_from_value_error(e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to import skill package: {e}")
+        raise HTTPException(status_code=500, detail="导入技能失败")
+
+
+@skills.post("/remote/list")
+async def list_remote_skills_route(
+    payload: RemoteSkillSourceRequest,
+    _current_user: User = Depends(get_admin_user),
+):
+    try:
+        return {"success": True, "data": await list_remote_skills(payload.source)}
+    except ValueError as e:
+        _raise_from_value_error(e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list remote skills from '{payload.source}': {e}")
+        raise HTTPException(status_code=500, detail="获取远程 skills 列表失败")
+
+
+@skills.post("/remote/install")
+async def install_remote_skill_route(
+    payload: RemoteSkillInstallRequest,
+    current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        item = await update_skill_enabled(db, slug=slug, enabled=payload.enabled, operator=current_user)
-        return {"success": True, "data": _serialize_skill_for_user(item, current_user)}
+        item = await install_remote_skill(
+            db,
+            source=payload.source,
+            skill=payload.skill,
+            created_by=current_user.username,
+        )
+        return {"success": True, "data": item.to_dict()}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to update skill enabled '{slug}': {e}")
-        raise HTTPException(status_code=500, detail="更新 Skill 启用状态失败")
+        logger.error(f"Failed to install remote skill '{payload.skill}' from '{payload.source}': {e}")
+        raise HTTPException(status_code=500, detail="安装远程 skill 失败")
+
+
+@skills.post("/remote/install-batch")
+async def install_remote_skills_batch_route(
+    payload: RemoteSkillBatchInstallRequest,
+    current_user: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """批量从同一远程仓库安装多个 skills（仅一次克隆，不存在的 skill 静默跳过）。"""
+    try:
+        results = await install_remote_skills_batch(
+            db,
+            source=payload.source,
+            skills=payload.skills,
+            created_by=current_user.username,
+        )
+        success_count = sum(1 for r in results if r["success"])
+        failed_count = sum(1 for r in results if not r["success"])
+        return {
+            "success": True,
+            "data": results,
+            "summary": {"total": len(results), "success": success_count, "failed": failed_count},
+        }
+    except ValueError as e:
+        _raise_from_value_error(e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to install remote skills batch from '{payload.source}': {e}")
+        raise HTTPException(status_code=500, detail="批量安装远程 skills 失败")
+
+
+@skills.post("/remote/search")
+async def search_remote_skills_route(
+    payload: RemoteSkillSearchRequest,
+    _current_user: User = Depends(get_admin_user),
+):
+    """搜索远程公开的 skills（管理员）。"""
+    try:
+        data = await search_remote_skills(payload.query)
+        return {"success": True, "data": data}
+    except ValueError as e:
+        _raise_from_value_error(e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to search remote skills with query '{payload.query}': {e}")
+        raise HTTPException(status_code=500, detail="搜索远程 skills 失败")
 
 
 @skills.get("/{slug}/tree")
 async def get_skill_tree_route(
     slug: str,
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """获取技能目录树（管理员）。"""
     try:
-        await get_management_readable_skill_or_raise(db, current_user, slug)
-        return {"success": True, "data": await get_skill_tree(db, slug)}
+        tree = await get_skill_tree(db, slug)
+        return {"success": True, "data": tree}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get skill tree '{slug}': {e}")
         raise HTTPException(status_code=500, detail="获取技能目录树失败")
@@ -349,14 +353,17 @@ async def get_skill_tree_route(
 async def get_skill_file_route(
     slug: str,
     path: str = Query(..., description="相对 skill 根目录路径"),
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """读取技能文本文件（管理员）。"""
     try:
-        await get_management_readable_skill_or_raise(db, current_user, slug)
-        return {"success": True, "data": await read_skill_file(db, slug, path)}
+        data = await read_skill_file(db, slug, path)
+        return {"success": True, "data": data}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to read skill file '{slug}/{path}': {e}")
         raise HTTPException(status_code=500, detail="读取技能文件失败")
@@ -366,22 +373,24 @@ async def get_skill_file_route(
 async def create_skill_file_route(
     slug: str,
     payload: SkillNodeCreateRequest,
-    current_user: User = Depends(get_required_user),
+    current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """创建技能文件或目录（管理员）。"""
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await create_skill_node(
             db,
             slug=slug,
             relative_path=payload.path,
             is_dir=payload.is_dir,
             content=payload.content,
-            updated_by=current_user.uid,
+            updated_by=current_user.username,
         )
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create skill node '{slug}/{payload.path}': {e}")
         raise HTTPException(status_code=500, detail="创建技能文件失败")
@@ -391,21 +400,23 @@ async def create_skill_file_route(
 async def update_skill_file_route(
     slug: str,
     payload: SkillFileUpdateRequest,
-    current_user: User = Depends(get_required_user),
+    current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """更新技能文本文件（管理员）。"""
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await update_skill_file(
             db,
             slug=slug,
             relative_path=payload.path,
             content=payload.content,
-            updated_by=current_user.uid,
+            updated_by=current_user.username,
         )
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to update skill file '{slug}/{payload.path}': {e}")
         raise HTTPException(status_code=500, detail="更新技能文件失败")
@@ -415,9 +426,10 @@ async def update_skill_file_route(
 async def update_skill_dependencies_route(
     slug: str,
     payload: SkillDependenciesUpdateRequest,
-    current_user: User = Depends(get_required_user),
+    current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """更新 skill 依赖（管理员）。"""
     try:
         item = await update_skill_dependencies(
             db,
@@ -425,11 +437,13 @@ async def update_skill_dependencies_route(
             tool_dependencies=payload.tool_dependencies,
             mcp_dependencies=payload.mcp_dependencies,
             skill_dependencies=payload.skill_dependencies,
-            operator=current_user,
+            updated_by=current_user.username,
         )
-        return {"success": True, "data": _serialize_skill_for_user(item, current_user)}
+        return {"success": True, "data": item.to_dict()}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to update skill dependencies '{slug}': {e}")
         raise HTTPException(status_code=500, detail="更新 skill 依赖失败")
@@ -439,15 +453,17 @@ async def update_skill_dependencies_route(
 async def delete_skill_file_route(
     slug: str,
     path: str = Query(..., description="相对 skill 根目录路径"),
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """删除技能文件或目录（管理员）。"""
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await delete_skill_node(db, slug=slug, relative_path=path)
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete skill file '{slug}/{path}': {e}")
         raise HTTPException(status_code=500, detail="删除技能文件失败")
@@ -457,16 +473,22 @@ async def delete_skill_file_route(
 async def export_skill_route(
     slug: str,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """导出技能压缩包（管理员）。"""
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         export_path, download_name = await export_skill_zip(db, slug)
         background_tasks.add_task(_cleanup_export_file, export_path)
-        return FileResponse(path=export_path, media_type="application/zip", filename=download_name)
+        return FileResponse(
+            path=export_path,
+            media_type="application/zip",
+            filename=download_name,
+        )
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to export skill '{slug}': {e}")
         raise HTTPException(status_code=500, detail="导出技能失败")
@@ -475,15 +497,17 @@ async def export_skill_route(
 @skills.delete("/{slug}")
 async def delete_skill_route(
     slug: str,
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """删除技能（目录 + 数据库记录，管理员）。"""
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await delete_skill(db, slug=slug)
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete skill '{slug}': {e}")
         raise HTTPException(status_code=500, detail="删除技能失败")
@@ -492,16 +516,23 @@ async def delete_skill_route(
 @skills.post("/delete-batch")
 async def delete_skills_batch_route(
     payload: SkillBatchDeleteRequest,
-    current_user: User = Depends(get_required_user),
+    _current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """批量删除技能（目录 + 数据库记录，管理员）。"""
     try:
-        for slug in payload.slugs:
-            await get_manageable_skill_or_raise(db, current_user, slug)
         results = await delete_skills_batch(db, slugs=payload.slugs)
-        return {"success": True, "data": results, "summary": _summarize_results(results)}
+        success_count = sum(1 for r in results if r["success"])
+        failed_count = sum(1 for r in results if not r["success"])
+        return {
+            "success": True,
+            "data": results,
+            "summary": {"total": len(results), "success": success_count, "failed": failed_count},
+        }
     except ValueError as e:
         _raise_from_value_error(e)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete skills batch: {e}")
         raise HTTPException(status_code=500, detail="批量删除技能失败")

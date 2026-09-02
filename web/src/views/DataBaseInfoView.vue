@@ -1,6 +1,13 @@
 <template>
-  <div class="database-info-container extension-detail-page">
+  <div class="database-info-container">
     <FileDetailModal />
+
+    <!-- 检索配置弹窗 -->
+    <SearchConfigModal
+      v-model="searchConfigModalVisible"
+      :database-id="databaseId"
+      @save="handleSearchConfigSave"
+    />
 
     <FileUploadModal
       v-model:visible="addFilesModalVisible"
@@ -11,365 +18,132 @@
       @success="onFileUploadSuccess"
     />
 
-    <div class="detail-top-bar">
-      <button class="detail-back-btn" type="button" @click="backToDatabase">
-        <ArrowLeft :size="16" />
-        <span>返回</span>
-      </button>
-      <div class="detail-title-area">
-        <div class="detail-icon">
-          <component :is="kbTypeIcon" :size="18" />
-        </div>
-        <div class="detail-title-text">
-          <h2>{{ database.name || '知识库加载中' }}</h2>
-          <span class="detail-subtitle">{{ databaseSubtitle }}</span>
-        </div>
-      </div>
-      <div class="detail-actions">
-        <a-space :size="8">
-          <button
-            type="button"
-            class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-            @click="copyDatabaseId"
-          >
-            <Copy :size="14" />
-            <span>复制 ID</span>
-          </button>
-          <button
-            type="button"
-            class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-            @click="showEditModal"
-          >
-            <Pencil :size="14" />
-            <span>编辑</span>
-          </button>
-        </a-space>
-      </div>
-    </div>
-
-    <div class="database-detail-body">
-      <div class="database-tab-bar" aria-label="知识库功能导航">
-        <nav class="database-tab-list" aria-label="知识库功能标签" role="tablist">
-          <button
-            v-for="tab in visibleTabs"
-            :key="tab.key"
-            type="button"
-            class="database-tab-item"
-            :class="{ active: activeTab === tab.key }"
-            role="tab"
-            :aria-selected="activeTab === tab.key"
-            @click="activeTab = tab.key"
-          >
-            <component :is="tab.icon" :size="17" />
-            <span>{{ tab.label }}</span>
-          </button>
-        </nav>
-      </div>
-
-      <main class="database-tab-content">
-        <div v-if="isMilvus" v-show="activeTab === 'filetable'" class="tab-panel file-panel">
-          <div class="file-management-info">
-            <div class="file-info-title">
-              <div class="file-info-title-row">
-                <button
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-                  @click="showAddFilesModal()"
-                >
-                  <FileUp :size="14" />
-                  <span>上传</span>
-                </button>
-                <button
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-                  @click="showCreateFolderModal"
-                >
-                  <FolderPlus :size="14" />
-                  <span>新建文件夹</span>
-                </button>
-              </div>
-            </div>
-            <div class="file-panel-status">
-              <div
-                v-if="pendingParseCount > 0"
-                class="file-stat-card file-stat-action file-stat-summary"
-                @click="confirmBatchParse"
-              >
-                <FileText :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ pendingParseCount }}</strong>
-                  <span>待解析</span>
-                </div>
-              </div>
-              <div
-                v-if="pendingIndexCount > 0"
-                class="file-stat-card file-stat-action file-stat-summary"
-                @click="confirmBatchIndex"
-              >
-                <DatabaseIcon :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ pendingIndexCount }}</strong>
-                  <span>待入库</span>
-                </div>
-              </div>
-              <div class="file-stat-card file-stat-summary">
-                <FileText :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ fileStats.count }}</strong>
-                  <span>文件</span>
-                </div>
-              </div>
-              <div v-if="fileStats.sizeText" class="file-stat-card file-stat-summary">
-                <DatabaseIcon :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ fileStats.sizeText }}</strong>
-                  <span>总大小</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="file-stat-card file-stat-summary file-stat-repair"
-                :disabled="statsRepairing"
-                :aria-busy="statsRepairing"
-                aria-label="修复缺失的 Chunk/Token 统计"
-                title="修复缺失的 Chunk/Token 统计"
-                @click="repairDatabaseStats"
-              >
-                <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
-                <DatabaseIcon v-else :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ fileStats.chunkText }}</strong>
-                  <span>Chunks</span>
-                </div>
-              </button>
-              <button
-                type="button"
-                class="file-stat-card file-stat-summary file-stat-repair"
-                :disabled="statsRepairing"
-                :aria-busy="statsRepairing"
-                aria-label="修复缺失的 Chunk/Token 统计"
-                title="修复缺失的 Chunk/Token 统计"
-                @click="repairDatabaseStats"
-              >
-                <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
-                <Hash v-else :size="16" />
-                <div class="file-stat-inline">
-                  <strong>{{ fileStats.tokenText }}</strong>
-                  <span>Tokens</span>
-                </div>
-              </button>
-            </div>
+    <div class="unified-layout">
+      <div class="left-panel" :style="{ width: leftPanelWidth + '%' }">
+        <KnowledgeBaseCard />
+        <!-- 待处理文件提示条 -->
+        <div v-if="!isDify && (pendingParseCount > 0 || pendingIndexCount > 0)" class="info-panel">
+          <div class="banner-item" v-if="pendingParseCount > 0" @click="confirmBatchParse">
+            <FileText :size="14" />
+            <span>{{ pendingParseCount }} 个文件待解析，点击解析</span>
           </div>
-          <FileTable ref="fileTableRef" />
-        </div>
-
-        <div v-show="activeTab === 'query'" class="tab-panel query-config-panel">
-          <div class="query-config-layout">
-            <div class="query-test-pane">
-              <QuerySection ref="querySectionRef" :visible="true" @toggle-visible="() => {}" />
-            </div>
-            <aside class="query-config-pane" aria-label="检索配置">
-              <div class="search-config-wrapper">
-                <div class="search-config-header">
-                  <div>
-                    <h3>检索配置</h3>
-                    <p>调整当前知识库的检索参数。</p>
-                  </div>
-                  <button
-                    type="button"
-                    class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-                    :disabled="searchConfigSaving"
-                    @click="handleInlineSearchConfigSave"
-                  >
-                    <Save :size="14" />
-                    <span>保存</span>
-                  </button>
-                </div>
-                <div class="search-config-body">
-                  <SearchConfigPanel
-                    ref="searchConfigPanelRef"
-                    :kb-id="kbId"
-                    @save="handleSearchConfigSave"
-                  />
-                </div>
-              </div>
-            </aside>
+          <div class="banner-item" v-if="pendingIndexCount > 0" @click="confirmBatchIndex">
+            <Database :size="14" />
+            <span>{{ pendingIndexCount }} 个文件待入库，点击入库</span>
           </div>
         </div>
+        <FileTable
+          v-if="!isDify"
+          :right-panel-visible="state.rightPanelVisible"
+          @show-add-files-modal="showAddFilesModal"
+          @toggle-right-panel="toggleRightPanel"
+        />
+      </div>
 
-        <div v-if="isMilvus && activeTab === 'graph'" class="tab-panel">
-          <KnowledgeGraphSection
-            :visible="true"
-            :active="activeTab === 'graph'"
-            @toggle-visible="() => {}"
-          />
-        </div>
+      <div v-if="!isDify" class="resize-handle" ref="resizeHandle"></div>
 
-        <div v-if="isMilvus && activeTab === 'mindmap'" class="tab-panel">
-          <MindMapSection v-if="kbId" :kb-id="kbId" ref="mindmapSectionRef" />
-        </div>
-
-        <div v-if="isMilvus && activeTab === 'evaluation'" class="tab-panel">
-          <RAGEvaluationTab
-            v-if="kbId"
-            :kb-id="kbId"
-            @switch-to-benchmarks="activeTab = 'benchmarks'"
-          />
-        </div>
-
-        <div v-if="isMilvus && activeTab === 'benchmarks'" class="tab-panel">
-          <div class="benchmark-management-container">
-            <div class="benchmark-content">
-              <EvaluationBenchmarks
-                v-if="kbId && isEvaluationSupported"
-                :kb-id="kbId"
-                @benchmark-selected="activeTab = 'evaluation'"
-              />
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-
-    <a-modal v-model:open="editModalVisible" title="编辑知识库信息" width="700px">
-      <template #footer>
-        <a-button danger @click="deleteDatabase" style="margin-right: auto; margin-left: 0">
-          <template #icon>
-            <Trash2 :size="16" style="vertical-align: -3px; margin-right: 4px" />
-          </template>
-          删除数据库
-        </a-button>
-        <a-button key="back" @click="editModalVisible = false">取消</a-button>
-        <a-button key="submit" type="primary" @click="handleEditSubmit">确定</a-button>
-      </template>
-      <a-form :model="editForm" :rules="rules" ref="editFormRef" layout="vertical">
-        <a-form-item label="知识库名称" name="name" required>
-          <a-input v-model:value="editForm.name" placeholder="请输入知识库名称" />
-        </a-form-item>
-        <a-form-item label="知识库描述" name="description">
-          <AiTextarea
-            v-model="editForm.description"
-            :name="editForm.name"
-            :files="fileList"
-            placeholder="请输入知识库描述"
-            :rows="4"
-          />
-        </a-form-item>
-
-        <a-form-item v-if="!isConnector" label="自动生成问题" name="auto_generate_questions">
-          <a-switch
-            v-model:checked="editForm.auto_generate_questions"
-            checked-children="开启"
-            un-checked-children="关闭"
-          />
-          <span style="margin-left: 8px; font-size: 12px; color: var(--gray-500)">
-            上传文件后自动生成测试问题
-          </span>
-        </a-form-item>
-
-        <a-form-item v-if="!isConnector" name="chunk_preset_id">
-          <template #label>
-            <span class="chunk-preset-label">
-              分块策略
-              <a-tooltip :title="editPresetDescription">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
-          <a-select v-model:value="editForm.chunk_preset_id" :options="chunkPresetOptions" />
-        </a-form-item>
-
-        <template v-if="isDifyKb">
-          <a-form-item label="Dify API URL" name="dify_api_url">
-            <a-input
-              v-model:value="editForm.dify_api_url"
-              placeholder="例如: https://api.dify.ai/v1"
-            />
-          </a-form-item>
-          <a-form-item label="Dify Token" name="dify_token">
-            <a-input-password
-              v-model:value="editForm.dify_token"
-              placeholder="请输入 Dify API Token"
-            />
-          </a-form-item>
-          <a-form-item label="Dataset ID" name="dify_dataset_id">
-            <a-input
-              v-model:value="editForm.dify_dataset_id"
-              placeholder="请输入 Dify dataset_id"
-            />
-          </a-form-item>
-        </template>
-
-        <template v-if="isNotionKb">
-          <a-form-item label="Notion Token" name="notion_token">
-            <a-input-password
-              v-model:value="editForm.notion_token"
-              placeholder="留空则保持现有 Token 或使用环境变量"
-            />
-          </a-form-item>
-          <a-form-item label="Data Source ID" name="notion_data_source_id">
-            <a-input
-              v-model:value="editForm.notion_data_source_id"
-              placeholder="请输入 Notion data_source_id"
-            />
-          </a-form-item>
-          <a-form-item label="Notion API Version" name="notion_version">
-            <a-input v-model:value="editForm.notion_version" placeholder="2026-03-11" />
-          </a-form-item>
-        </template>
-
-        <a-form-item v-if="canEditShareConfig" label="共享设置" name="share_config">
-          <a-form-item-rest>
-            <ShareConfigForm
-              ref="shareConfigFormRef"
-              :model-value="database.share_config"
-              :auto-select-user-dept="true"
-            />
-          </a-form-item-rest>
-        </a-form-item>
-        <a-form-item
-          v-else-if="database.share_config"
-          label="共享设置"
-          name="share_config_readonly"
+      <div
+        class="right-panel"
+        :style="{
+          width: 100 - leftPanelWidth + '%',
+          display: isDify || store.state.rightPanelVisible ? 'flex' : 'none'
+        }"
+      >
+        <a-tabs
+          v-model:activeKey="activeTab"
+          class="knowledge-tabs"
+          :tabBarStyle="{ margin: 0, padding: '0 16px' }"
         >
-          <div class="share-config-readonly">
-            <a-tag :color="shareConfigDisplay.color">
-              {{ shareConfigDisplay.label }}
-            </a-tag>
-            <span class="access-names">{{ shareConfigDisplay.detail }}</span>
-          </div>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+          <template #rightExtra>
+            <a-tooltip title="检索配置" placement="bottom">
+              <a-button type="text" class="config-btn" @click="openSearchConfigModal">
+                <SettingOutlined />
+                <span class="config-text">检索配置</span>
+              </a-button>
+            </a-tooltip>
+          </template>
+          <a-tab-pane v-if="!isDify && isGraphSupported" key="graph" tab="知识图谱">
+            <KnowledgeGraphSection
+              :visible="true"
+              :active="activeTab === 'graph'"
+              @toggle-visible="() => {}"
+            />
+          </a-tab-pane>
+          <a-tab-pane key="query" tab="检索测试">
+            <QuerySection ref="querySectionRef" :visible="true" @toggle-visible="() => {}" />
+          </a-tab-pane>
+          <a-tab-pane v-if="!isDify" key="mindmap" tab="知识导图">
+            <MindMapSection v-if="databaseId" :database-id="databaseId" ref="mindmapSectionRef" />
+          </a-tab-pane>
+          <a-tab-pane
+            v-if="!isDify"
+            key="evaluation"
+            tab="RAG评估"
+            :disabled="!isEvaluationSupported"
+          >
+            <template #tab>
+              <span :style="{ color: !isEvaluationSupported ? 'var(--gray-400)' : '' }">
+                RAG评估
+                <a-tooltip v-if="!isEvaluationSupported" title="仅支持 Milvus 类型的知识库">
+                  <Info :size="14" style="margin-left: 4px; vertical-align: middle" />
+                </a-tooltip>
+              </span>
+            </template>
+            <RAGEvaluationTab
+              v-if="databaseId && isEvaluationSupported"
+              :database-id="databaseId"
+              @switch-to-benchmarks="activeTab = 'benchmarks'"
+            />
+          </a-tab-pane>
+          <a-tab-pane
+            v-if="!isDify"
+            key="benchmarks"
+            tab="评估基准"
+            :disabled="!isEvaluationSupported"
+          >
+            <template #tab>
+              <span :style="{ color: !isEvaluationSupported ? 'var(--gray-400)' : '' }">
+                评估基准
+                <a-tooltip v-if="!isEvaluationSupported" title="仅支持 Milvus 类型的知识库">
+                  <Info :size="14" style="margin-left: 4px; vertical-align: middle" />
+                </a-tooltip>
+              </span>
+            </template>
+            <div class="benchmark-management-container">
+              <div class="benchmark-content">
+                <EvaluationBenchmarks
+                  v-if="databaseId && isEvaluationSupported"
+                  :database-id="databaseId"
+                  @benchmark-selected="
+                    (benchmark) => {
+                      // 处理基准选择逻辑
+                      activeTab = 'evaluation'
+                    }
+                  "
+                  @refresh="
+                    () => {
+                      // 刷新逻辑
+                    }
+                  "
+                />
+              </div>
+            </div>
+          </a-tab-pane>
+        </a-tabs>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, ref, watch, onUnmounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
 import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
-import {
-  ArrowLeft,
-  BarChart3,
-  ClipboardList,
-  Copy,
-  Database as DatabaseIcon,
-  FileUp,
-  FileText,
-  FolderPlus,
-  Hash,
-  LoaderCircle,
-  Map as MapIcon,
-  Network,
-  Pencil,
-  Save,
-  Search,
-  Trash2
-} from 'lucide-vue-next'
-import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { Info, FileText, Database } from 'lucide-vue-next'
+import { SettingOutlined } from '@ant-design/icons-vue'
+import { Modal } from 'ant-design-vue'
+import KnowledgeBaseCard from '@/components/KnowledgeBaseCard.vue'
 import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
@@ -378,156 +152,56 @@ import QuerySection from '@/components/QuerySection.vue'
 import MindMapSection from '@/components/MindMapSection.vue'
 import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
 import EvaluationBenchmarks from '@/components/EvaluationBenchmarks.vue'
-import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
-import AiTextarea from '@/components/AiTextarea.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
-import { databaseApi } from '@/apis/knowledge_api'
-import { departmentApi } from '@/apis/department_api'
-import { authApi } from '@/apis/auth_api'
-import { CHUNK_PRESET_OPTIONS, getChunkPresetDescription } from '@/utils/chunk_presets'
-import { formatFileSize } from '@/utils/file_utils'
-import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
+import SearchConfigModal from '@/components/SearchConfigModal.vue'
 
 const route = useRoute()
-const router = useRouter()
 const store = useDatabaseStore()
 const taskerStore = useTaskerStore()
-const userStore = useUserStore()
 
-const kbId = computed(() => store.kbId)
+const databaseId = computed(() => store.databaseId)
 const database = computed(() => store.database)
-const isCurrentDatabaseLoaded = computed(() => database.value?.kb_id === kbId.value)
-const kbType = computed(() =>
-  isCurrentDatabaseLoaded.value ? database.value.kb_type?.toLowerCase() || 'milvus' : ''
-)
-const isMilvus = computed(() => kbType.value === 'milvus')
-const isDifyKb = computed(() => kbType.value === 'dify')
-const isNotionKb = computed(() => kbType.value === 'notion')
-const isConnector = computed(
-  () => isCurrentDatabaseLoaded.value && kbUtils.isReadOnlyDatabase(database.value)
-)
-const isEvaluationSupported = computed(() => isMilvus.value)
-const kbTypeIcon = computed(() => getKbTypeIcon(kbType.value || 'milvus'))
-
-const databaseSubtitle = computed(() => {
-  const typeLabel = getKbTypeLabel(kbType.value || 'milvus')
-  if (!isCurrentDatabaseLoaded.value) return '正在加载知识库信息'
-
-  const description = database.value.description?.trim()
-  if (description) return description
-
-  if (isConnector.value) return `${typeLabel} 连接器`
-  return `${typeLabel} 知识库 · ${database.value.row_count || 0} 文件`
+const state = computed(() => store.state)
+const isDify = computed(() => database.value.kb_type?.toLowerCase() === 'dify')
+// 计算属性：是否支持知识图谱
+const isGraphSupported = computed(() => {
+  const kbType = database.value.kb_type?.toLowerCase()
+  return kbType === 'lightrag'
 })
 
-const tabs = computed(() => {
-  if (isMilvus.value) {
-    return [
-      { key: 'filetable', label: '文件管理', icon: FileText },
-      { key: 'query', label: '检索测试', icon: Search },
-      { key: 'graph', label: '知识图谱', icon: Network },
-      { key: 'mindmap', label: '知识导图', icon: MapIcon },
-      { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
-      { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
-    ]
-  }
-
-  return [{ key: 'query', label: '检索测试', icon: Search }]
+// 计算属性：是否支持评估功能
+const isEvaluationSupported = computed(() => {
+  const kbType = database.value.kb_type?.toLowerCase()
+  return kbType === 'milvus'
 })
 
-const visibleTabs = computed(() => tabs.value)
-const activeTab = ref('filetable')
-
-watch(
-  () => [kbId.value, isMilvus.value],
-  ([newDbId, isMilvusType]) => {
-    if (!newDbId) return
-    activeTab.value = isMilvusType ? 'filetable' : 'query'
-  },
-  { immediate: true }
-)
-
-watch(visibleTabs, (nextTabs) => {
-  if (!nextTabs.some((tab) => tab.key === activeTab.value)) {
-    activeTab.value = nextTabs[0]?.key || 'query'
-  }
-})
-
+// 计算待解析文件数量（status: 'uploaded'）
 const pendingParseCount = computed(() => {
   const files = store.database.files || {}
   return Object.values(files).filter((f) => !f.is_folder && f.status === 'uploaded').length
 })
 
-const formatStatNumber = (value) => {
-  const number = Number(value ?? 0)
-  return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '0'
-}
-
-const formatTokenStatNumber = (value) => {
-  const number = Number(value ?? 0)
-  if (!Number.isFinite(number)) return '0'
-  if (number > 10000) return `${Math.round(number / 1000)}K`
-  return number.toLocaleString('zh-CN')
-}
-
-const statsRepairing = ref(false)
-
-const fileStats = computed(() => {
-  const files = Object.values(store.database.files || {}).filter((file) => !file.is_folder)
-  const stats = store.database.stats || {}
-  const statsFileCount = Number(stats.file_count)
-  const totalSize = files.reduce((sum, file) => {
-    const size = Number(file.file_size ?? file.size ?? 0)
-    return Number.isFinite(size) ? sum + size : sum
-  }, 0)
-
-  return {
-    count: Number.isFinite(statsFileCount) ? statsFileCount : files.length,
-    sizeText: totalSize > 0 ? formatFileSize(totalSize) : '',
-    chunkText: formatStatNumber(stats.chunk_count),
-    tokenText: formatTokenStatNumber(stats.token_count)
-  }
-})
-
-const repairDatabaseStats = async () => {
-  if (!kbId.value || statsRepairing.value) return
-
-  statsRepairing.value = true
-  try {
-    const result = await databaseApi.repairDatabaseStats(kbId.value)
-    await store.getDatabaseInfo(undefined, true, true)
-
-    const updatedTokenFiles = Number(result?.updated_token_files || 0)
-    const updatedChunkFiles = Number(result?.updated_chunk_files || 0)
-    if (updatedTokenFiles || updatedChunkFiles) {
-      message.success(
-        `已修复 ${updatedTokenFiles} 个 Token 统计，${updatedChunkFiles} 个 Chunk 统计`
-      )
-    } else {
-      message.info('统计已是最新')
-    }
-  } catch (error) {
-    console.error(error)
-    message.error(error.message || '统计修复失败')
-  } finally {
-    statsRepairing.value = false
-  }
-}
-
+// 计算待入库文件数量（status: 'parsed' 或 'error_indexing'）
 const pendingIndexCount = computed(() => {
   const files = store.database.files || {}
+  const isLightRAG = database.value?.kb_type?.toLowerCase() === 'lightrag'
   return Object.values(files).filter((f) => {
     if (f.is_folder) return false
+    if (isLightRAG) {
+      return f.status === 'parsed'
+    }
     return f.status === 'parsed' || f.status === 'error_indexing'
   }).length
 })
 
+// 确认批量解析
 const confirmBatchParse = () => {
   const fileIds = Object.values(store.database.files || {})
     .filter((f) => f.status === 'uploaded')
     .map((f) => f.file_id)
 
-  if (fileIds.length === 0) return
+  if (fileIds.length === 0) {
+    return
+  }
 
   Modal.confirm({
     title: '批量解析',
@@ -536,16 +210,32 @@ const confirmBatchParse = () => {
   })
 }
 
+// 确认批量入库
 const confirmBatchIndex = () => {
+  const isLightRAG = database.value?.kb_type?.toLowerCase() === 'lightrag'
   const fileIds = Object.values(store.database.files || {})
     .filter((f) => {
       if (f.is_folder) return false
+      if (isLightRAG) return f.status === 'parsed'
       return f.status === 'parsed' || f.status === 'error_indexing'
     })
     .map((f) => f.file_id)
 
-  if (fileIds.length === 0) return
+  if (fileIds.length === 0) {
+    return
+  }
 
+  if (isLightRAG) {
+    Modal.confirm({
+      title: '批量入库',
+      content: `确定要入库 ${fileIds.length} 个文件吗？`,
+      onOk: () => store.indexFiles(fileIds)
+    })
+    return
+  }
+
+  // 非 LightRAG：触发 FileTable 的入库流程
+  // 暂时简单处理，直接调用 store.indexFiles
   Modal.confirm({
     title: '批量入库',
     content: `确定要入库 ${fileIds.length} 个文件吗？`,
@@ -553,50 +243,124 @@ const confirmBatchIndex = () => {
   })
 }
 
+// Tab 切换逻辑 - 智能默认
+const activeTab = ref('query')
+
+// 思维导图引用
 const mindmapSectionRef = ref(null)
+
+// 查询区域引用
 const querySectionRef = ref(null)
-const searchConfigSaving = ref(false)
-const searchConfigPanelRef = ref(null)
+
+const resetGraphStats = () => {
+  store.graphStats = {
+    total_nodes: 0,
+    total_edges: 0,
+    displayed_nodes: 0,
+    displayed_edges: 0,
+    is_truncated: false
+  }
+}
+
+// LightRAG 默认展示知识图谱
+watch(
+  () => [databaseId.value, isGraphSupported.value, isEvaluationSupported.value, isDify.value],
+  ([newDbId, supported, , difyMode], oldValue = []) => {
+    const [oldDbId, previouslySupported] = oldValue
+
+    if (!newDbId) {
+      return
+    }
+
+    if (difyMode) {
+      activeTab.value = 'query'
+      return
+    }
+
+    if (newDbId && newDbId !== oldDbId) {
+      resetGraphStats()
+    } else if (!supported && previouslySupported) {
+      resetGraphStats()
+    }
+
+    if (
+      supported &&
+      (newDbId !== oldDbId || previouslySupported === false || previouslySupported === undefined)
+    ) {
+      activeTab.value = 'graph'
+      return
+    }
+
+    if (!supported && activeTab.value === 'graph') {
+      activeTab.value = 'query'
+    }
+
+    // 如果知识库类型不支持评估功能且当前在评估相关 tab，切换到查询 tab
+    if (
+      !isEvaluationSupported.value &&
+      (activeTab.value === 'evaluation' || activeTab.value === 'benchmarks')
+    ) {
+      activeTab.value = 'query'
+    }
+  },
+  { immediate: true }
+)
+
+// 切换右侧面板显示/隐藏
+const toggleRightPanel = () => {
+  store.state.rightPanelVisible = !store.state.rightPanelVisible
+}
+
+// 拖拽调整大小（仅水平方向）
+const leftPanelWidth = ref(50)
+const isDragging = ref(false)
+const resizeHandle = ref(null)
+
+// 检索配置弹窗
+const searchConfigModalVisible = ref(false)
 
 const handleSearchConfigSave = () => {
   store.getDatabaseInfo()
 }
 
-const handleInlineSearchConfigSave = async () => {
-  if (!searchConfigPanelRef.value) return
-  searchConfigSaving.value = true
-  try {
-    await searchConfigPanelRef.value.save()
-  } finally {
-    searchConfigSaving.value = false
-  }
+// 打开检索配置弹窗
+const openSearchConfigModal = () => {
+  searchConfigModalVisible.value = true
 }
 
+// 添加文件弹窗
 const addFilesModalVisible = ref(false)
 const currentFolderId = ref(null)
 const isFolderUploadMode = ref(false)
 const addFilesMode = ref('file')
-const isInitialLoad = ref(true)
-const fileTableRef = ref(null)
 
+// 标记是否是初次加载
+const isInitialLoad = ref(true)
+
+// 显示添加文件弹窗
 const showAddFilesModal = (options = {}) => {
   const { isFolder = false, mode = 'file' } = options
   isFolderUploadMode.value = isFolder
   addFilesMode.value = mode
   addFilesModalVisible.value = true
-  currentFolderId.value = null
+  currentFolderId.value = null // 重置
 }
 
-const showCreateFolderModal = () => {
-  fileTableRef.value?.showCreateFolderModal()
-}
-
+// 传递给 FileUploadModal 的文件夹树
 const folderTree = computed(() => {
+  // 复用 FileTable 中构建文件树的逻辑，或者从 store 中获取
+  // 简单起见，这里假设 store.database.files 是扁平列表，我们在 FileTable 中已经有了构建好的树
+  // 但 FileTable 是子组件，最好将树的构建逻辑放到 store 或 composable 中，或者在这里重新构建
+  // 既然 FileTable 中已经实现了 buildFileTree，我们可以考虑将其提取出来
+  // 为了快速实现，我们这里简单实现一个仅用于选择的树构建
   const files = store.database.files || {}
   const fileList = Object.values(files)
+
+  // 构建树的简化版逻辑 (只关心文件夹)
   const nodeMap = new Map()
   const roots = []
 
+  // 1. 初始化节点
   fileList.forEach((file) => {
     if (file.is_folder) {
       const item = { ...file, title: file.filename, value: file.file_id, children: [] }
@@ -604,23 +368,34 @@ const folderTree = computed(() => {
     }
   })
 
+  // 2. 构建层级
   fileList.forEach((file) => {
     if (file.is_folder && file.parent_id && nodeMap.has(file.parent_id)) {
       const parent = nodeMap.get(file.parent_id)
       const child = nodeMap.get(file.file_id)
-      if (parent && child) parent.children.push(child)
-    } else if (file.is_folder && !file.parent_id && nodeMap.has(file.file_id)) {
-      roots.push(nodeMap.get(file.file_id))
+      if (parent && child) {
+        parent.children.push(child)
+      }
+    } else if (file.is_folder && !file.parent_id) {
+      // 只有显式根文件夹才放入 roots
+      // 对于隐式路径生成的文件夹，目前简化处理暂不支持在上传时选择（因为它们没有物理ID）
+      // 除非我们复用 FileTable 的复杂逻辑。
+      // 如果用户只用新建文件夹功能创建文件夹，那么逻辑是够用的。
+      if (nodeMap.has(file.file_id)) {
+        roots.push(nodeMap.get(file.file_id))
+      }
     }
   })
 
   return roots
 })
 
+// 文件上传成功回调
 const onFileUploadSuccess = () => {
   taskerStore.loadTasks()
 }
 
+// 重置文件选中状态
 const resetFileSelectionState = () => {
   store.selectedRowKeys = []
   store.selectedFile = null
@@ -628,18 +403,22 @@ const resetFileSelectionState = () => {
 }
 
 watch(
-  () => route.params.kbId,
-  async (nextKbId) => {
+  () => route.params.database_id,
+  async (newId) => {
+    // 切换知识库时，标记为初次加载
     isInitialLoad.value = true
-    store.kbId = nextKbId
+
+    store.databaseId = newId
     resetFileSelectionState()
+    resetGraphStats()
     store.stopAutoRefresh()
-    await store.getDatabaseInfo(nextKbId, false)
+    await store.getDatabaseInfo(newId, false) // Explicitly load query params on initial load
     store.startAutoRefresh()
   },
   { immediate: true }
 )
 
+// 监听文件列表变化，自动更新思维导图和生成示例问题
 const previousFileCount = ref(0)
 
 watch(
@@ -650,33 +429,53 @@ watch(
     const newFileCount = Object.keys(newFiles).length
     const oldFileCount = previousFileCount.value
 
+    // 首次加载时，只更新计数，不触发任何操作
     if (isInitialLoad.value) {
       previousFileCount.value = newFileCount
       isInitialLoad.value = false
       return
     }
 
+    // 如果文件数量发生变化（增加或减少），只重新生成问题，不自动生成思维导图
     if (newFileCount !== oldFileCount) {
+      const changeType = newFileCount > oldFileCount ? '增加' : '减少'
+      console.log(`文件数量从 ${oldFileCount} ${changeType}到 ${newFileCount}，准备重新生成问题`)
+
+      // 只要有文件，就重新生成问题（无论之前是否有问题）
       if (newFileCount > 0) {
         setTimeout(async () => {
+          console.log('文件数量变化，检查是否需要生成问题，querySectionRef:', querySectionRef.value)
           if (querySectionRef.value) {
+            // 检查是否开启了自动生成问题
             if (database.value.additional_params?.auto_generate_questions) {
+              console.log('开始重新生成问题...')
               await querySectionRef.value.generateSampleQuestions(true)
+            } else {
+              console.log('自动生成问题已关闭，跳过生成')
             }
           } else {
+            console.warn('querySectionRef 未准备好，稍后重试')
+            // 如果组件还没准备好，再等一会儿
             setTimeout(async () => {
-              if (
-                querySectionRef.value &&
-                database.value.additional_params?.auto_generate_questions
-              ) {
-                await querySectionRef.value.generateSampleQuestions(true)
+              if (querySectionRef.value) {
+                if (database.value.additional_params?.auto_generate_questions) {
+                  console.log('延迟后开始生成问题...')
+                  await querySectionRef.value.generateSampleQuestions(true)
+                } else {
+                  console.log('自动生成问题已关闭，跳过生成')
+                }
               }
             }, 2000)
           }
-        }, 3000)
+        }, 3000) // 等待3秒让后端处理完成
       } else {
+        // 如果文件数量变为0，清空问题列表
+        console.log('文件数量为0，清空问题列表')
         setTimeout(() => {
-          querySectionRef.value?.clearQuestions()
+          if (querySectionRef.value) {
+            // 清空问题列表
+            querySectionRef.value.clearQuestions()
+          }
         }, 1000)
       }
     }
@@ -686,656 +485,235 @@ watch(
   { deep: true }
 )
 
-const backToDatabase = () => {
-  router.push({ path: '/extensions', query: { tab: 'knowledge' } })
-}
-
-const copyDatabaseId = async () => {
-  if (!database.value.kb_id) {
-    message.warning('知识库ID为空')
-    return
-  }
-
-  try {
-    await navigator.clipboard.writeText(database.value.kb_id)
-    message.success('知识库ID已复制到剪贴板')
-  } catch {
-    const textArea = document.createElement('textarea')
-    textArea.value = database.value.kb_id
-    document.body.appendChild(textArea)
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-    message.success('知识库ID已复制到剪贴板')
-  }
-}
-
-const departments = ref([])
-const users = ref([])
-const editModalVisible = ref(false)
-const editFormRef = ref(null)
-const shareConfigFormRef = ref(null)
-const editForm = reactive({
-  name: '',
-  description: '',
-  auto_generate_questions: false,
-  chunk_preset_id: 'general',
-  dify_api_url: '',
-  dify_token: '',
-  dify_dataset_id: '',
-  notion_token: '',
-  notion_data_source_id: '',
-  notion_version: '2026-03-11'
-})
-
-const rules = {
-  name: [{ required: true, message: '请输入知识库名称' }]
-}
-
-const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
-const editPresetDescription = computed(() => getChunkPresetDescription(editForm.chunk_preset_id))
-const fileList = computed(() => {
-  if (!database.value?.files) return []
-  return Object.values(database.value.files)
-    .map((f) => f.filename)
-    .filter(Boolean)
-})
-
-const canEditShareConfig = computed(() => userStore.isSuperAdmin || userStore.isAdmin)
-
-const shareConfigDisplay = computed(() => {
-  const shareConfig = database.value?.share_config || { access_level: 'global' }
-  if (shareConfig.access_level === 'department') {
-    const departmentIds = shareConfig.department_ids || []
-    const names = departmentIds.map((id) => getDepartmentName(id)).join('、') || '无'
-    return {
-      color: 'blue',
-      label: '部门共享',
-      detail: `${departmentIds.length} 个部门可访问：${names}`
-    }
-  }
-
-  if (shareConfig.access_level === 'user') {
-    const userUids = shareConfig.user_uids || []
-    const names = userUids.map((uid) => getUserName(uid)).join('、') || '无'
-    return {
-      color: 'purple',
-      label: '指定人',
-      detail: `${userUids.length} 个用户可访问：${names}`
-    }
-  }
-
-  return {
-    color: 'green',
-    label: '全局共享',
-    detail: '所有用户可访问'
-  }
-})
-
-const getDepartmentName = (id) => {
-  const dept = departments.value.find((item) => Number(item.id) === Number(id))
-  return dept?.name || `部门${id}`
-}
-
-const getUserName = (uid) => {
-  const user = users.value.find((item) => item.uid === uid)
-  return user?.username || uid
-}
-
-const loadDepartments = async () => {
-  try {
-    const res = await departmentApi.getDepartments()
-    departments.value = res.departments || res || []
-  } catch {
-    departments.value = []
-  }
-}
-
-const loadUsers = async () => {
-  try {
-    users.value = await authApi.getUserAccessOptions()
-  } catch {
-    users.value = []
-  }
-}
-
-const showEditModal = () => {
-  editForm.name = database.value.name || ''
-  editForm.description = database.value.description || ''
-  editForm.auto_generate_questions =
-    database.value.additional_params?.auto_generate_questions || false
-  editForm.chunk_preset_id = database.value.additional_params?.chunk_preset_id || 'general'
-  editForm.dify_api_url = database.value.additional_params?.dify_api_url || ''
-  editForm.dify_token = database.value.additional_params?.dify_token || ''
-  editForm.dify_dataset_id = database.value.additional_params?.dify_dataset_id || ''
-  editForm.notion_token = ''
-  editForm.notion_data_source_id = database.value.additional_params?.notion_data_source_id || ''
-  editForm.notion_version = database.value.additional_params?.notion_version || '2026-03-11'
-  editModalVisible.value = true
-}
-
-const handleEditSubmit = () => {
-  editFormRef.value
-    .validate()
-    .then(async () => {
-      if (shareConfigFormRef.value) {
-        const validation = shareConfigFormRef.value.validate()
-        if (!validation.valid) {
-          message.warning(validation.message)
-          return
-        }
-      }
-
-      const formConfig = shareConfigFormRef.value?.config || { access_level: 'global' }
-      const updateData = {
-        name: editForm.name,
-        description: editForm.description,
-        additional_params: {},
-        share_config: {
-          access_level: formConfig.access_level,
-          department_ids:
-            formConfig.access_level === 'department' ? formConfig.department_ids || [] : [],
-          user_uids: formConfig.access_level === 'user' ? formConfig.user_uids || [] : []
-        }
-      }
-
-      if (isDifyKb.value) {
-        if (
-          !editForm.dify_api_url?.trim() ||
-          !editForm.dify_token?.trim() ||
-          !editForm.dify_dataset_id?.trim()
-        ) {
-          message.error('请完整填写 Dify API URL、Token 和 Dataset ID')
-          return
-        }
-        if (!editForm.dify_api_url.trim().endsWith('/v1')) {
-          message.error('Dify API URL 必须以 /v1 结尾')
-          return
-        }
-        updateData.additional_params = {
-          dify_api_url: editForm.dify_api_url.trim(),
-          dify_token: editForm.dify_token.trim(),
-          dify_dataset_id: editForm.dify_dataset_id.trim()
-        }
-      } else if (isNotionKb.value) {
-        if (!editForm.notion_data_source_id?.trim()) {
-          message.error('请填写 Notion Data Source ID')
-          return
-        }
-        updateData.additional_params = {
-          notion_data_source_id: editForm.notion_data_source_id.trim(),
-          notion_version: editForm.notion_version?.trim() || '2026-03-11'
-        }
-        if (editForm.notion_token?.trim()) {
-          updateData.additional_params.notion_token = editForm.notion_token.trim()
-        }
-      } else {
-        updateData.additional_params = {
-          auto_generate_questions: editForm.auto_generate_questions,
-          chunk_preset_id: editForm.chunk_preset_id || 'general'
-        }
-      }
-
-      await store.updateDatabaseInfo(updateData)
-      editModalVisible.value = false
-    })
-    .catch((err) => {
-      console.error('表单验证失败:', err)
-    })
-}
-
-const deleteDatabase = () => {
-  store.deleteDatabase()
-}
-
+// 组件挂载时启动示例轮播
 onMounted(() => {
-  loadDepartments()
-  loadUsers()
+  store.databaseId = route.params.database_id
+  resetFileSelectionState()
+  store.getDatabaseInfo()
+  store.startAutoRefresh()
+
+  // 添加拖拽事件监听（仅水平方向）
+  if (resizeHandle.value) {
+    resizeHandle.value.addEventListener('mousedown', handleMouseDown)
+  }
 })
+
+// 组件卸载时停止示例轮播
+onUnmounted(() => {
+  store.stopAutoRefresh()
+  if (resizeHandle.value) {
+    resizeHandle.value.removeEventListener('mousedown', handleMouseDown)
+  }
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
+})
+
+// 拖拽调整大小功能
+const handleMouseDown = () => {
+  isDragging.value = true
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const handleMouseMove = (e) => {
+  if (!isDragging.value) return
+
+  const container = document.querySelector('.unified-layout')
+  if (!container) return
+
+  const containerRect = container.getBoundingClientRect()
+  const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
+  leftPanelWidth.value = Math.max(20, Math.min(80, newWidth))
+}
+
+const handleMouseUp = () => {
+  isDragging.value = false
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
 </script>
 
 <style lang="less" scoped>
-@import '@/assets/css/extensions.less';
-@import '@/assets/css/extension-detail.less';
-
-.database-info-container {
-  .detail-content-wrapper {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .detail-subtitle {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.database-detail-body {
-  flex: 1;
-  min-height: 0;
+.db-main-container {
   display: flex;
-  flex-direction: column;
-  background: var(--gray-10);
-  overflow: hidden;
+  width: 100%;
 }
 
-.database-tab-bar {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
-  padding: 8px 12px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.database-tab-list {
+.ant-modal-footer {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: max-content;
-}
-
-.database-tab-item {
-  position: relative;
-  min-height: 40px;
-  border: none;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--gray-600);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 10px;
-  padding: 0 14px 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background 0.15s,
-    color 0.15s;
+}
 
-  svg {
-    flex-shrink: 0;
+.auto-refresh-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+
+  span {
+    color: var(--gray-700);
+    font-weight: 500;
+    font-size: 14px;
   }
 
-  &:hover {
-    color: var(--gray-900);
-    background: var(--gray-50);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-200);
-    outline-offset: 2px;
-  }
-
-  &.active {
-    color: var(--main-color);
-    background: var(--main-20);
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 12px;
-      right: 12px;
-      bottom: 0;
-      height: 3px;
-      border-radius: 3px 3px 0 0;
-      background: var(--main-color);
+  .ant-switch {
+    &.ant-switch-checked {
+      background-color: var(--main-color);
     }
   }
 }
 
-.database-tab-content {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
+/* Unified Layout Styles */
+.unified-layout {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  height: 100vh;
+  background-color: var(--gray-0);
+  gap: 0;
+
+  .left-panel,
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 8px;
+  }
+
+  .left-panel {
+    display: flex;
+    flex-shrink: 0;
+    flex-grow: 1;
+    padding-right: 0;
+    flex-direction: column;
+    // max-height: calc(100% - 16px);
+  }
+
+  .info-panel {
+    background: var(--gray-10);
+    border-radius: 12px;
+    border: 1px solid var(--gray-200);
+    display: flex;
+    gap: 12px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+
+    .banner-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--color-info-50);
+      border-left: 3px solid var(--color-info-500);
+      border-radius: 2px;
+      font-size: 13px;
+      color: var(--color-info-700);
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        background: var(--color-info-100);
+      }
+
+      svg {
+        color: var(--color-info-500);
+      }
+    }
+  }
+
+  .right-panel {
+    flex-grow: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding-left: 0;
+  }
+
+  .resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background-color: var(--gray-200);
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+    height: 30px;
+    top: 40%;
+    margin: 0 2px;
+    border-radius: 4px;
+  }
 }
 
-.tab-panel {
-  flex: 1;
-  min-height: 0;
+/* Tab 样式 */
+.knowledge-tabs {
   height: 100%;
   display: flex;
   flex-direction: column;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: var(--gray-10);
   overflow: hidden;
-  padding: 16px var(--page-padding);
-}
 
-.file-panel {
-  gap: 8px;
-}
+  :deep(.ant-tabs-content) {
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
+  }
 
-.query-config-panel {
-  overflow: hidden;
-}
+  :deep(.ant-tabs-tabpane) {
+    height: 100%;
+    overflow: hidden;
+  }
 
-.query-config-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: 12px;
-}
+  :deep(.ant-tabs-nav) {
+    margin-bottom: 0;
+    // background-color: var(--gray-0);
+  }
 
-.query-test-pane {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-
-.query-test-pane :deep(.query-section) {
-  flex: 1;
-  min-width: 0;
-}
-
-.query-config-pane {
-  width: 360px;
-  flex: 0 0 360px;
-  min-height: 0;
-  display: flex;
-}
-
-.query-config-pane .search-config-wrapper {
-  width: 100%;
-}
-
-.query-config-pane :deep(.ant-row) {
-  margin-right: 0 !important;
-  margin-left: 0 !important;
-}
-
-.query-config-pane :deep(.ant-col) {
-  max-width: 100%;
-  flex: 0 0 100%;
-  padding-right: 0 !important;
-  padding-left: 0 !important;
-}
-
-.file-panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-shrink: 0;
-  padding: 10px 12px;
-  background: var(--gray-0);
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-}
-
-.file-panel-summary {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-  gap: 8px;
-}
-
-.file-panel-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--gray-900);
-  white-space: nowrap;
-}
-
-.file-panel-count {
-  font-size: 12px;
-  color: var(--gray-500);
-  white-space: nowrap;
-}
-
-.file-management-info {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-shrink: 0;
-}
-
-.file-info-title {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 180px;
-}
-
-.file-info-title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.file-panel-desc {
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.file-panel-status {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.file-stat-card {
-  min-width: 60px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--main-0);
-  border: 1px solid var(--gray-100);
-  color: var(--main-color);
-  font: inherit;
-  appearance: none;
-  text-align: left;
-
-  div {
+  :deep(.ant-tabs-extra-content) {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  strong {
-    font-size: 14px;
-    line-height: 1.2;
-    color: var(--gray-900);
-    white-space: nowrap;
-  }
-
-  span {
-    font-size: 11px;
-    color: var(--gray-500);
-    white-space: nowrap;
+    align-items: center;
+    height: 100%;
   }
 }
 
-.file-stat-summary {
-  min-width: 87px;
-  min-height: 36px;
-  gap: 8px;
-  padding: 5px 10px;
-
-  .file-stat-inline {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 4px;
-  }
-}
-
-.file-stat-action {
-  cursor: pointer;
-  color: var(--color-warning-500);
-  border: 1px solid var(--color-warning-100);
-  background-color: var(--color-warning-50);
-  transition:
-    background 0.15s,
-    border-color 0.15s;
+.config-btn {
+  color: var(--gray-600);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  height: 32px;
+  border-radius: 6px;
+  transition: all 0.2s;
 
   &:hover {
-    border-color: var(--color-warning-700);
+    color: var(--main-color);
+    background-color: var(--gray-100);
+  }
+
+  .config-text {
+    font-size: 14px;
+    margin-left: 4px;
   }
 }
 
-.file-stat-repair {
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-
-  &:hover:not(:disabled) {
-    border-color: var(--main-300);
-    background-color: var(--main-30);
-  }
-
-  &:disabled {
-    cursor: wait;
-    opacity: 0.72;
-  }
+/* Table row selection styling */
+:deep(.ant-table-tbody > tr.ant-table-row-selected > td) {
+  background-color: var(--main-5);
 }
 
-.file-stat-spinner {
-  animation: file-stat-spin 0.8s linear infinite;
-}
-
-@keyframes file-stat-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.search-config-wrapper {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--gray-200);
-  border-radius: 8px;
-  background: var(--gray-0);
-  overflow: hidden;
-}
-
-.search-config-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--gray-150);
-  flex-shrink: 0;
-
-  h3 {
-    margin: 0 0 4px;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--gray-900);
-  }
-
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--gray-500);
-  }
-}
-
-.search-config-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.share-config-readonly {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .access-names {
-    font-size: 13px;
-    color: var(--gray-600);
-  }
-}
-
-.chunk-preset-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chunk-preset-help-icon {
-  color: var(--gray-500);
-  cursor: help;
-  font-size: 14px;
-}
-
-@media (max-width: 1024px) {
-  .query-config-layout {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-
-  .query-test-pane {
-    min-height: 360px;
-  }
-
-  .query-config-pane {
-    width: 100%;
-    flex: 0 0 auto;
-    min-height: 320px;
-  }
-}
-
-@media (max-width: 767px) {
-  .detail-top-bar {
-    gap: 10px;
-  }
-
-  .detail-actions :deep(.extension-panel-action span) {
-    display: none;
-  }
-
-  .database-tab-bar {
-    padding: 8px 8px 0;
-  }
-
-  .database-tab-item {
-    min-width: 104px;
-  }
-
-  .query-config-layout {
-    flex-direction: column;
-  }
-
-  .query-config-pane {
-    width: 100%;
-    flex: 0 0 auto;
-    min-height: 320px;
-  }
-
-  .file-panel-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+:deep(.ant-table-tbody > tr:hover > td) {
+  background-color: var(--main-5);
 }
 </style>
 
 <style lang="less">
-@media (max-width: 767px) {
-  .app-layout:has(.database-info-container) {
-    min-width: 0;
-  }
-}
-
 /* 全局样式作为备用方案 */
 .ant-popover .query-params-compact {
   width: 220px;
@@ -1424,13 +802,10 @@ onMounted(() => {
   }
 }
 
-.graph-section {
-  border: 1px solid var(--gray-100);
-  border-radius: 12px;
-}
-
+// 基准管理样式
 .benchmark-management-container {
   height: 100%;
+  background: var(--gray-0);
   display: flex;
   flex-direction: column;
 }
@@ -1439,5 +814,6 @@ onMounted(() => {
   flex: 1;
   overflow: hidden;
   min-height: 0;
+  padding: 12px 16px;
 }
 </style>

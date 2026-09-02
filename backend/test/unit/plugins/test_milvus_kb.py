@@ -1,20 +1,15 @@
-import asyncio
-import types
-
-import pytest
-import yuxi
 from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType
 
-if "knowledge_base" not in vars(yuxi):
-    yuxi.knowledge_base = types.SimpleNamespace()
+import pytest
 
-from yuxi.knowledge.base import FileStatus
-from yuxi.knowledge.chunking.ragflow_like.nlp import count_tokens
+from yuxi.knowledge.base import KBOperationError
 from yuxi.knowledge.implementations.milvus import (
     CONTENT_ANALYZER_PARAMS,
     CONTENT_SPARSE_FIELD,
-    VECTOR_METRIC_TYPE,
+    MilvusEmbeddingError,
     MilvusKB,
+    MilvusSearchError,
+    VECTOR_METRIC_TYPE,
 )
 
 
@@ -23,6 +18,7 @@ class FakeHit:
         self.distance = distance
         self.entity = {
             "content": content,
+            "source": "demo.md",
             "chunk_id": "chunk-1",
             "file_id": "file-1",
             "chunk_index": 0,
@@ -33,7 +29,6 @@ class FakeCollection:
     def __init__(self, distance: float = 0.8):
         self.search_calls = []
         self.hybrid_calls = []
-        self.insert_calls = []
         self.distance = distance
 
     def search(self, **kwargs):
@@ -44,356 +39,18 @@ class FakeCollection:
         self.hybrid_calls.append(kwargs)
         return [[FakeHit("Hybrid result", self.distance)]]
 
-    def insert(self, entities):
-        self.insert_calls.append(entities)
-
 
 def make_kb(collection: FakeCollection) -> MilvusKB:
     kb = MilvusKB.__new__(MilvusKB)
-    kb.databases_meta = {"db": {"embedding_model_spec": "test-provider:test-embedding"}}
-    kb.files_meta = {"file-1": {"filename": "demo.md", "kb_id": "db"}}
-    kb._get_query_params = lambda kb_id: {}
-    kb._get_embedding_function = lambda embedding_model_spec, **kwargs: lambda texts: [[0.1, 0.2] for _ in texts]
+    kb.databases_meta = {"db": {"embed_info": {}}}
+    kb._get_query_params = lambda db_id: {}
+    kb._get_embedding_function = lambda embed_info: lambda texts: [[0.1, 0.2] for _ in texts]
 
-    async def get_collection(kb_id: str):
+    async def get_collection(db_id: str):
         return collection
 
     kb._get_milvus_collection = get_collection
     return kb
-
-
-def make_chunk(index: int, content: str = "content") -> dict:
-    return {
-        "id": f"id-{index}",
-        "chunk_id": f"chunk-{index}",
-        "file_id": "file-1",
-        "chunk_index": index,
-        "content": content,
-    }
-
-
-def test_build_chunk_pg_records_preserves_extraction_result():
-    kb = MilvusKB.__new__(MilvusKB)
-
-    records = kb._build_chunk_pg_records(
-        "db",
-        [
-            {
-                "chunk_id": "chunk-1",
-                "file_id": "file-1",
-                "chunk_index": 0,
-                "content": "content",
-                "extraction_result": {"entities": ["alpha"]},
-            }
-        ],
-    )
-
-    assert records[0]["extraction_result"] == {"entities": ["alpha"]}
-
-
-async def test_embed_and_store_chunks_batches_embedding_and_insert():
-    kb = MilvusKB.__new__(MilvusKB)
-    chunks = [make_chunk(index, content=f"text-{index}") for index in range(450)]
-    embedding_calls = []
-    store_calls = []
-
-    async def embedding_function(texts):
-        embedding_calls.append(list(texts))
-        return [[float(len(text))] for text in texts]
-
-    async def insert_chunks_to_stores(kb_id, file_id, collection, batch_chunks, embeddings, **kwargs):
-        store_calls.append(
-            {
-                "kb_id": kb_id,
-                "file_id": file_id,
-                "chunks": list(batch_chunks),
-                "embeddings": list(embeddings),
-                "kwargs": kwargs,
-            }
-        )
-
-    kb._insert_chunks_to_stores = insert_chunks_to_stores
-
-    await kb._embed_and_store_chunks(
-        "db",
-        "file-1",
-        FakeCollection(),
-        chunks,
-        embedding_function,
-        chunk_batch_size=200,
-    )
-
-    assert [len(call) for call in embedding_calls] == [200, 200, 50]
-    assert [len(call["chunks"]) for call in store_calls] == [200, 200, 50]
-    assert store_calls[0]["chunks"][0]["chunk_id"] == "chunk-0"
-    assert store_calls[1]["chunks"][0]["chunk_id"] == "chunk-200"
-    assert store_calls[2]["chunks"][0]["chunk_id"] == "chunk-400"
-    assert all(call["kwargs"] == {} for call in store_calls)
-
-
-def test_calculate_chunk_stats_counts_chunks_and_tokens():
-    kb = MilvusKB.__new__(MilvusKB)
-    chunks = [make_chunk(0, content="alpha beta"), make_chunk(1, content="中文")]
-
-    stats = kb._calculate_chunk_stats(chunks)
-
-    assert stats == {
-        "chunk_count": 2,
-        "token_count": count_tokens("alpha beta") + count_tokens("中文"),
-    }
-
-
-async def test_index_file_persists_chunk_stats():
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.databases_meta = {"db": {"embedding_model_spec": "test-provider:test-embedding", "metadata": {}}}
-    kb.files_meta = {
-        "file-1": {
-            "kb_id": "db",
-            "filename": "demo.md",
-            "markdown_file": "minio://parsed/db/file-1.md",
-            "processing_params": {},
-            "status": FileStatus.PARSED,
-        }
-    }
-    kb._metadata_lock = asyncio.Lock()
-    collection = FakeCollection()
-    deleted_files = []
-    store_calls = []
-    persisted_files = []
-    refreshed_kbs = []
-    queue_adds = []
-    queue_removes = []
-    chunks = [make_chunk(0, content="alpha beta"), make_chunk(1, content="中文")]
-
-    async def get_collection(kb_id):
-        return collection
-
-    async def read_markdown(path):
-        return "# demo"
-
-    async def embedding_function(texts):
-        return [[0.1, 0.2] for _ in texts]
-
-    async def delete_file_chunks_only(kb_id, file_id):
-        deleted_files.append((kb_id, file_id))
-
-    async def embed_and_store_chunks(kb_id, file_id, collection_arg, chunk_records, embedding_fn):
-        store_calls.append((kb_id, file_id, collection_arg, list(chunk_records), embedding_fn))
-
-    async def persist_file(file_id):
-        persisted_files.append((file_id, dict(kb.files_meta[file_id])))
-
-    async def refresh_database_stats(kb_id):
-        refreshed_kbs.append(kb_id)
-        return {}
-
-    kb._get_milvus_collection = get_collection
-    kb._read_markdown_from_minio = read_markdown
-    kb._split_text_into_chunks = lambda text, file_id, filename, params: chunks
-    kb._get_embedding_function = lambda embedding_model_spec: embedding_function
-    kb.delete_file_chunks_only = delete_file_chunks_only
-    kb._embed_and_store_chunks = embed_and_store_chunks
-    kb._persist_file = persist_file
-    kb.refresh_database_stats = refresh_database_stats
-    kb._add_to_processing_queue = lambda file_id: queue_adds.append(file_id)
-    kb._remove_from_processing_queue = lambda file_id: queue_removes.append(file_id)
-
-    result = await kb.index_file("db", "file-1", operator_id="user-1", params={})
-
-    assert deleted_files == [("db", "file-1")]
-    assert len(store_calls) == 1
-    assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0", "chunk-1"]
-    assert result["status"] == FileStatus.INDEXED
-    assert result["chunk_count"] == 2
-    assert result["token_count"] == count_tokens("alpha beta") + count_tokens("中文")
-    assert queue_adds == ["file-1"]
-    assert queue_removes == ["file-1"]
-    assert persisted_files[-1][1]["chunk_count"] == result["chunk_count"]
-    assert refreshed_kbs == ["db"]
-
-
-async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
-    repos = []
-
-    class FakeChunkRepo:
-        def __init__(self):
-            self.delete_calls = []
-            repos.append(self)
-
-        async def count_graph_indexed_by_file_id(self, file_id):
-            return 0
-
-        async def delete_by_file_id(self, file_id):
-            self.delete_calls.append(file_id)
-            return 2
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.files_meta = {"file-1": {"kb_id": "db", "chunk_count": 2, "token_count": 10}}
-    persisted_files = []
-    refreshed_kbs = []
-
-    async def get_collection(kb_id):
-        return None
-
-    async def persist_file(file_id):
-        persisted_files.append((file_id, dict(kb.files_meta[file_id])))
-
-    async def refresh_database_stats(kb_id):
-        refreshed_kbs.append(kb_id)
-        return {}
-
-    kb._get_milvus_collection = get_collection
-    kb._persist_file = persist_file
-    kb.refresh_database_stats = refresh_database_stats
-
-    await kb.delete_file_chunks_only("db", "file-1")
-
-    assert repos[0].delete_calls == ["file-1"]
-    assert kb.files_meta["file-1"]["chunk_count"] == 0
-    assert kb.files_meta["file-1"]["token_count"] == 0
-    assert persisted_files == [("file-1", {"kb_id": "db", "chunk_count": 0, "token_count": 0})]
-    assert refreshed_kbs == ["db"]
-
-
-async def test_insert_chunks_to_stores_inserts_current_batch(monkeypatch):
-    repos = []
-
-    class FakeChunkRepo:
-        def __init__(self):
-            self.upsert_calls = []
-            self.delete_calls = []
-            repos.append(self)
-
-        async def batch_upsert(self, chunks):
-            self.upsert_calls.append(chunks)
-            return []
-
-        async def delete_by_file_id(self, file_id):
-            self.delete_calls.append(file_id)
-            return 0
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
-    kb = MilvusKB.__new__(MilvusKB)
-    collection = FakeCollection()
-    chunks = [make_chunk(index) for index in range(3)]
-    embeddings = [[0.1, 0.2] for _ in chunks]
-
-    await kb._insert_chunks_to_stores("db", "file-1", collection, chunks, embeddings)
-
-    assert len(collection.insert_calls) == 1
-    assert collection.insert_calls[0][0] == ["id-0", "id-1", "id-2"]
-    assert collection.insert_calls[0][5] == embeddings
-    assert len(repos[0].upsert_calls) == 1
-    assert [record["chunk_id"] for record in repos[0].upsert_calls[0]] == ["chunk-0", "chunk-1", "chunk-2"]
-
-
-async def test_insert_chunks_to_stores_rolls_back_file_when_milvus_insert_fails(monkeypatch):
-    repos = []
-
-    class FakeChunkRepo:
-        def __init__(self):
-            self.upsert_calls = []
-            self.delete_calls = []
-            repos.append(self)
-
-        async def batch_upsert(self, chunks):
-            self.upsert_calls.append(chunks)
-            return []
-
-        async def delete_by_file_id(self, file_id):
-            self.delete_calls.append(file_id)
-            return 0
-
-    class FailingCollection(FakeCollection):
-        def insert(self, entities):
-            super().insert(entities)
-            raise RuntimeError("milvus boom")
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
-    kb = MilvusKB.__new__(MilvusKB)
-    collection = FailingCollection()
-    milvus_delete_calls = []
-
-    async def delete_file_chunks_from_milvus(collection_arg, file_id):
-        milvus_delete_calls.append((collection_arg, file_id))
-
-    kb._delete_file_chunks_from_milvus = delete_file_chunks_from_milvus
-    chunks = [make_chunk(index) for index in range(2)]
-    embeddings = [[0.1, 0.2] for _ in chunks]
-
-    with pytest.raises(RuntimeError, match="milvus boom"):
-        await kb._insert_chunks_to_stores("db", "file-1", collection, chunks, embeddings)
-
-    assert repos[0].delete_calls == ["file-1"]
-    assert milvus_delete_calls == [(collection, "file-1")]
-
-
-async def test_update_content_uses_streaming_chunk_store(monkeypatch):
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.databases_meta = {"db": {"embedding_model_spec": "test-provider:test-embedding", "metadata": {}}}
-    kb.files_meta = {
-        "file-1": {
-            "path": "/tmp/demo.md",
-            "filename": "demo.md",
-            "processing_params": {},
-        }
-    }
-    kb._metadata_lock = asyncio.Lock()
-    collection = FakeCollection()
-    queue_adds = []
-    queue_removes = []
-    persisted_files = []
-    refreshed_kbs = []
-    deleted_files = []
-    store_calls = []
-
-    async def get_collection(kb_id):
-        return collection
-
-    async def forbidden_embedding(texts):
-        raise AssertionError("update_content should not embed the whole file directly")
-
-    async def persist_file(file_id):
-        persisted_files.append(file_id)
-
-    async def refresh_database_stats(kb_id):
-        refreshed_kbs.append(kb_id)
-        return {}
-
-    async def delete_file_chunks_only(kb_id, file_id):
-        deleted_files.append((kb_id, file_id))
-
-    async def embed_and_store_chunks(kb_id, file_id, collection_arg, chunks, embedding_function):
-        store_calls.append((kb_id, file_id, collection_arg, list(chunks), embedding_function))
-
-    async def parse_file(source, params):
-        return "# markdown"
-
-    kb._get_milvus_collection = get_collection
-    kb._get_embedding_function = lambda embedding_model_spec: forbidden_embedding
-    kb._persist_file = persist_file
-    kb.refresh_database_stats = refresh_database_stats
-    kb._split_text_into_chunks = lambda text, file_id, filename, params: [make_chunk(0), make_chunk(1)]
-    kb.delete_file_chunks_only = delete_file_chunks_only
-    kb._embed_and_store_chunks = embed_and_store_chunks
-    kb._add_to_processing_queue = lambda file_id: queue_adds.append(file_id)
-    kb._remove_from_processing_queue = lambda file_id: queue_removes.append(file_id)
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.Parser.aparse", parse_file)
-
-    result = await kb.update_content("db", ["file-1"])
-
-    assert deleted_files == [("db", "file-1")]
-    assert len(store_calls) == 1
-    assert store_calls[0][2] is collection
-    assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0", "chunk-1"]
-    assert store_calls[0][4] is forbidden_embedding
-    assert result[0]["status"] == "done"
-    assert kb.files_meta["file-1"]["status"] == "done"
-    assert queue_adds == ["file-1"]
-    assert queue_removes == ["file-1"]
-    assert persisted_files
-    assert refreshed_kbs == ["db"]
 
 
 async def test_keyword_mode_uses_milvus_bm25_search():
@@ -525,3 +182,227 @@ def test_collection_supports_bm25_requires_analyzed_content_sparse_field_and_fun
     collection = type("Collection", (), {"schema": schema})()
 
     assert kb._collection_supports_bm25(collection)
+
+
+async def test_vector_mode_can_use_existing_async_embedding_path():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+    calls: list[list[str]] = []
+
+    async def async_encode(texts):
+        calls.append(texts)
+        return [[0.3, 0.4] for _ in texts]
+
+    kb._get_async_embedding_function = lambda embed_info: async_encode
+
+    chunks = await kb.aquery(
+        "vector query",
+        "db",
+        search_mode="vector",
+        use_async_embedding=True,
+    )
+
+    assert calls == [["vector query"]]
+    assert chunks[0]["content"] == "BM25 result"
+    assert collection.search_calls[0]["data"] == [[0.3, 0.4]]
+
+
+async def test_raise_on_error_distinguishes_embedding_failure_from_empty_recall():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+
+    async def failing_encode(_texts):
+        raise RuntimeError("embedding unavailable")
+
+    kb._get_async_embedding_function = lambda embed_info: failing_encode
+
+    with pytest.raises(MilvusEmbeddingError) as exc_info:
+        await kb.aquery(
+            "vector query",
+            "db",
+            search_mode="vector",
+            use_async_embedding=True,
+            raise_on_error=True,
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+async def test_raise_on_error_distinguishes_milvus_search_failure():
+    class FailingCollection(FakeCollection):
+        def search(self, **kwargs):
+            del kwargs
+            raise RuntimeError("milvus unavailable")
+
+    kb = make_kb(FailingCollection())
+
+    with pytest.raises(MilvusSearchError) as exc_info:
+        await kb.aquery("vector query", "db", search_mode="vector", raise_on_error=True)
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+async def test_default_error_behavior_remains_empty_list_for_existing_callers():
+    class FailingCollection(FakeCollection):
+        def search(self, **kwargs):
+            del kwargs
+            raise RuntimeError("milvus unavailable")
+
+    kb = make_kb(FailingCollection())
+
+    assert await kb.aquery("vector query", "db", search_mode="vector") == []
+
+
+async def test_get_file_content_does_not_hide_milvus_read_failure():
+    class FailingCollection:
+        def query_iterator(self, **_kwargs):
+            raise RuntimeError("milvus unavailable")
+
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.files_meta = {"file-1": {"database_id": "db"}}
+
+    async def get_collection(_db_id: str):
+        return FailingCollection()
+
+    kb._get_milvus_collection = get_collection
+
+    with pytest.raises(KBOperationError, match="Milvus"):
+        await kb.get_file_content("db", "file-1")
+
+
+async def test_get_file_content_streams_every_milvus_page_and_closes_iterator():
+    class FakeIterator:
+        def __init__(self):
+            self.batches = iter(
+                [
+                    [{"chunk_id": "chunk-2", "chunk_index": 1, "content": "二"}],
+                    [{"chunk_id": "chunk-1", "chunk_index": 0, "content": "一"}],
+                ]
+            )
+            self.closed = False
+
+        def next(self):
+            return next(self.batches, [])
+
+        def close(self):
+            self.closed = True
+
+    class PaginatedCollection:
+        def __init__(self):
+            self.iterator = FakeIterator()
+            self.arguments = None
+
+        def query_iterator(self, **kwargs):
+            self.arguments = kwargs
+            return self.iterator
+
+    collection = PaginatedCollection()
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.files_meta = {"file-1": {"database_id": "db"}}
+
+    async def get_collection(_db_id: str):
+        return collection
+
+    kb._get_milvus_collection = get_collection
+
+    result = await kb.get_file_content("db", "file-1")
+
+    assert [value["id"] for value in result["lines"]] == [
+        "chunk-1",
+        "chunk-2",
+    ]
+    assert collection.arguments == {
+        "batch_size": 1000,
+        "expr": 'file_id == "file-1"',
+        "output_fields": ["content", "chunk_id", "chunk_index"],
+    }
+    assert collection.iterator.closed is True
+
+
+async def test_vector_mode_reuses_precomputed_embedding_and_exact_file_ids():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+
+    def unexpected_embedding(_embed_info):
+        raise AssertionError("embedding must not run")
+
+    kb._get_embedding_function = unexpected_embedding
+    chunks = await kb.aquery(
+        "vector query",
+        "db",
+        search_mode="vector",
+        query_embedding=[0.3, 0.4],
+        filter_file_ids=["file-1", 'file"2', "file-1"],
+        raise_on_error=True,
+    )
+
+    assert chunks[0]["content"] == "BM25 result"
+    search_call = collection.search_calls[0]
+    assert search_call["data"] == [[0.3, 0.4]]
+    assert search_call["expr"] == 'file_id in ["file-1", "file\\"2"]'
+
+
+async def test_file_id_and_file_name_filters_are_combined():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+
+    await kb.aquery(
+        "vector query",
+        "db",
+        file_name="共识",
+        filter_file_ids=["file-1"],
+        raise_on_error=True,
+    )
+
+    assert collection.search_calls[0]["expr"] == ('source like "%共识%" and file_id in ["file-1"]')
+
+
+async def test_empty_file_id_filter_does_not_fall_back_to_global_search():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+
+    with pytest.raises(ValueError, match="filter_file_ids"):
+        await kb.aquery(
+            "vector query",
+            "db",
+            filter_file_ids=[],
+            raise_on_error=True,
+        )
+
+    assert collection.search_calls == []
+
+
+async def test_aembed_texts_batches_and_validates_vectors():
+    collection = FakeCollection()
+    kb = make_kb(collection)
+    kb.databases_meta["db"]["embed_info"] = {"dimension": "2"}
+    calls: list[list[str]] = []
+
+    async def encode(texts):
+        calls.append(texts)
+        return [[0.1, 0.2] for _ in texts]
+
+    kb._get_async_embedding_function = lambda _embed_info: encode
+
+    result = await kb.aembed_texts("db", ["query", "route query"])
+
+    assert calls == [["query", "route query"]]
+    assert result == [[0.1, 0.2], [0.1, 0.2]]
+
+
+@pytest.mark.parametrize("embedding", [[0.1], [0.1, float("inf")], []])
+async def test_precomputed_embedding_rejects_invalid_vectors_without_search(embedding):
+    collection = FakeCollection()
+    kb = make_kb(collection)
+    kb.databases_meta["db"]["embed_info"] = {"dimension": 2}
+
+    with pytest.raises(ValueError, match="query_embedding"):
+        await kb.aquery(
+            "vector query",
+            "db",
+            search_mode="vector",
+            query_embedding=embedding,
+            raise_on_error=True,
+        )
+
+    assert collection.search_calls == []

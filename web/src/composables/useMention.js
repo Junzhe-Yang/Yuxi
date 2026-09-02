@@ -10,7 +10,7 @@ import { ref } from 'vue'
 
 /**
  * @typedef {Object} MentionKnowledgeBase
- * @property {string} kb_id - 知识库ID
+ * @property {string} db_id - 知识库ID
  * @property {string} name - 知识库名称
  */
 
@@ -107,14 +107,14 @@ export function useMention() {
     }))
 
     const kbItems = knowledgeBases.map((kb) => ({
-      value: kb.kb_id,
+      value: kb.name,
       label: kb.name,
       type: 'knowledge',
-      description: kb.kb_id
+      description: kb.db_id
     }))
 
     const mcpItems = mcps.map((m) => ({
-      value: m.slug,
+      value: m.name,
       label: m.name,
       type: 'mcp',
       description: m.description || ''

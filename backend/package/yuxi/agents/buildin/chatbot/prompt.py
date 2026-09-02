@@ -1,4 +1,3 @@
-from yuxi.utils.datetime_utils import shanghai_now
 from yuxi.utils.paths import (
     VIRTUAL_PATH_OUTPUTS,
     VIRTUAL_PATH_PREFIX,
@@ -12,20 +11,21 @@ PROMPT = f"""
 专门用来回答用户的问题。请根据用户提供的信息，尽可能详细地回答问题。
 如果你不确定答案，可以说你不知道，但请尽量提供相关的信息或建议。请保持礼貌和专业。
 
-<| 内部执行约束:重要 |>
-以下内容仅用于指导你的内部执行过程，不属于面向用户的基本设定。除非用户明确询问系统如何工作，
-否则不要主动向用户说明工作区、文件系统、知识库路径、工具调用方式等内部实现细节。
+<| 内部执行约束 |>
+以下内容仅用于指导你的内部执行过程，不属于面向用户的基本设定。除非用户明确询问系统如何工作，否则不要主动向用户说明工作区、文件系统、知识库路径、工具调用方式等内部实现细节。
 
 <| 文件系统约束 |>
 系统主要工作路径为 {VIRTUAL_PATH_PREFIX}，但必须遵守规范：
+- {VIRTUAL_PATH_WORKSPACE}：用于存放工作文件（用户目录，不要轻易写入）
 - {VIRTUAL_PATH_OUTPUTS}：用于写入的文件夹
     - {VIRTUAL_PATH_OUTPUTS}/tmp/：用于存放中间结果或备份内容
-- {VIRTUAL_PATH_UPLOADS}：用于存放用户上传的附件（只读，除非用户要求，否则不得写入）
-- {VIRTUAL_PATH_WORKSPACE}：用于存放用户文件（用户私人目录，除非用户要求，否则不得写入）
-- 其他路径：非必要不写入其他路径
+- {VIRTUAL_PATH_UPLOADS}：用于存放用户上传的文件
 
-<| 风格规范 |>
-保持专业严谨，减少使用 Emoji
+非必要不写入其他路径
+
+<| 知识库访问 |>
+当 query_kb 中没有找到相关内容，或者需要进一步基于检索结果获取更详细上下文时，
+使用 open_kb_document 按 resource_id 和 file_id 打开知识库文档。
 """
 
 # 效果不好，暂时不启用
@@ -46,11 +46,9 @@ SOURCE_CITE_PROMPT = """
 
 TODO_MID_PROMPT = """
 你需要根据任务的复杂程度来使用 write_todos 来记录规划和待办事项，确保任务的每个步骤都被记录和跟踪。
-每个待办任务名称必须简短，控制在 20 个中文汉字以内。
 """
 
 
 def build_prompt_with_context(context):
-    current_date = f"当前日期：{shanghai_now().strftime('%Y-%m-%d')}"
-    system_prompt = f"{current_date}\n\n{PROMPT.strip()}\n\n{context.system_prompt or ''}"
+    system_prompt = f"{PROMPT.strip()}\n\n{context.system_prompt or ''}"
     return system_prompt.strip()

@@ -44,7 +44,7 @@ def _build_run() -> SimpleNamespace:
             "config": {"thread_id": "thread-1"},
             "agent_id": "ChatbotAgent",
             "image_content": None,
-            "uid": "user-1",
+            "user_id": "1",
             "request_id": "req-1",
         },
     )
@@ -63,9 +63,9 @@ def _patch_common(monkeypatch: pytest.MonkeyPatch, run_obj: SimpleNamespace):
         del run_id
         return run_obj
 
-    async def fake_load_user(uid: str):
-        del uid
-        return SimpleNamespace(id=1, uid="user-1")
+    async def fake_load_user(user_id: str):
+        del user_id
+        return SimpleNamespace(id=1)
 
     async def fake_not_cancelled(self):
         del self
@@ -90,8 +90,8 @@ async def test_process_agent_run_non_retryable_error_marks_failed(monkeypatch: p
     terminal_statuses: list[str] = []
     events: list[str] = []
 
-    async def fake_append_event(run_id: str, event_type: str, payload: dict, **kwargs):
-        del run_id, payload, kwargs
+    async def fake_append_event(run_id: str, event_type: str, payload: dict):
+        del run_id, payload
         events.append(event_type)
 
     async def fake_mark_terminal(run_id: str, status: str, error_type=None, error_message=None):
@@ -121,8 +121,8 @@ async def test_process_agent_run_retryable_error_retries_then_completes(monkeypa
     events: list[dict] = []
     attempts = {"count": 0}
 
-    async def fake_append_event(run_id: str, event_type: str, payload: dict, **kwargs):
-        del run_id, kwargs
+    async def fake_append_event(run_id: str, event_type: str, payload: dict):
+        del run_id
         events.append({"event_type": event_type, "payload": payload})
 
     async def fake_mark_terminal(run_id: str, status: str, error_type=None, error_message=None):
@@ -154,83 +154,6 @@ async def test_process_agent_run_retryable_error_retries_then_completes(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_chunked_event_writer_flushes_loading_chunks_by_thread(monkeypatch: pytest.MonkeyPatch):
-    events: list[dict] = []
-
-    async def fake_append_run_event(run_id: str, event_type: str, payload: dict, *, thread_id: str | None = None):
-        events.append({"run_id": run_id, "event_type": event_type, "payload": payload, "thread_id": thread_id})
-
-    monkeypatch.setattr(run_worker, "append_run_event", fake_append_run_event)
-
-    writer = run_worker.ChunkedEventWriter("run-1", "parent-thread")
-    await writer.append({"status": "loading", "response": "parent", "thread_id": "parent-thread"})
-    await writer.append({"status": "loading", "response": "child", "thread_id": "child-thread"})
-    await writer.flush()
-
-    assert events == [
-        {
-            "run_id": "run-1",
-            "event_type": "messages",
-            "payload": {"items": [{"status": "loading", "response": "parent", "thread_id": "parent-thread"}]},
-            "thread_id": "parent-thread",
-        },
-        {
-            "run_id": "run-1",
-            "event_type": "messages",
-            "payload": {"items": [{"status": "loading", "response": "child", "thread_id": "child-thread"}]},
-            "thread_id": "child-thread",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_chunked_event_writer_flushes_semantic_tool_call_immediately(monkeypatch: pytest.MonkeyPatch):
-    events: list[dict] = []
-
-    async def fake_append_run_event(run_id: str, event_type: str, payload: dict, *, thread_id: str | None = None):
-        events.append({"run_id": run_id, "event_type": event_type, "payload": payload, "thread_id": thread_id})
-
-    monkeypatch.setattr(run_worker, "append_run_event", fake_append_run_event)
-
-    writer = run_worker.ChunkedEventWriter("run-1", "parent-thread")
-    chunk = {
-        "status": "loading",
-        "response": "",
-        "thread_id": "parent-thread",
-        "stream_event": {
-            "type": "tool_call",
-            "message_id": "msg-1",
-            "tool_call_id": "call-1",
-            "name": "task",
-            "args": {"description": "do work"},
-            "index": 0,
-            "thread_id": "parent-thread",
-            "namespace": [],
-        },
-    }
-    await writer.append(chunk)
-
-    assert events == [
-        {
-            "run_id": "run-1",
-            "event_type": "messages",
-            "payload": {"items": [chunk]},
-            "thread_id": "parent-thread",
-        }
-    ]
-
-
-def test_chunk_thread_id_reads_nested_metadata():
-    assert (
-        run_worker._chunk_thread_id(
-            {"metadata": {"configurable": {"thread_id": "child-thread"}}},
-            "parent-thread",
-        )
-        == "child-thread"
-    )
-
-
-@pytest.mark.asyncio
 async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.MonkeyPatch):
     calls: list[str] = []
 
@@ -246,20 +169,10 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     async def fake_ensure_builtin_mcp_servers_in_db():
         calls.append("ensure_builtin_mcp_servers_in_db")
 
-    @asynccontextmanager
-    async def fake_session_ctx():
-        yield object()
-
-    async def fake_init_builtin_skills(session):
-        del session
-        calls.append("init_builtin_skills")
-
     monkeypatch.setattr(run_worker.pg_manager, "initialize", fake_initialize)
     monkeypatch.setattr(run_worker.pg_manager, "create_business_tables", fake_create_business_tables)
     monkeypatch.setattr(run_worker.pg_manager, "ensure_business_schema", fake_ensure_business_schema)
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", fake_session_ctx)
     monkeypatch.setattr(run_worker, "ensure_builtin_mcp_servers_in_db", fake_ensure_builtin_mcp_servers_in_db)
-    monkeypatch.setattr(run_worker, "init_builtin_skills", fake_init_builtin_skills)
 
     await run_worker._worker_startup({})
 
@@ -268,5 +181,4 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
         "create_business_tables",
         "ensure_business_schema",
         "ensure_builtin_mcp_servers_in_db",
-        "init_builtin_skills",
     ]

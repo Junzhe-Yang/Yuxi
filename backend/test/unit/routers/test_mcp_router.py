@@ -22,7 +22,7 @@ def _build_app(*, allow_admin: bool = True) -> FastAPI:
             raise HTTPException(status_code=403, detail="需要管理员权限")
         return User(
             username="admin",
-            uid="admin",
+            user_id="admin",
             password_hash="x",
             role="admin",
         )
@@ -30,7 +30,7 @@ def _build_app(*, allow_admin: bool = True) -> FastAPI:
     async def fake_required_user():
         return User(
             username="admin" if allow_admin else "user",
-            uid="admin" if allow_admin else "user",
+            user_id="admin" if allow_admin else "user",
             password_hash="x",
             role="admin" if allow_admin else "user",
         )
@@ -49,7 +49,7 @@ def test_update_mcp_server_status(monkeypatch):
             self.enabled = enabled
 
         def to_dict(self):
-            return {"name": "demo-mcp", "enabled": self.enabled}
+            return {"name": "sequentialthinking", "enabled": self.enabled}
 
     async def fake_set_server_enabled(db, name, enabled, updated_by=None):
         captured["name"] = name
@@ -60,13 +60,13 @@ def test_update_mcp_server_status(monkeypatch):
     monkeypatch.setattr("server.routers.mcp_router.set_server_enabled", fake_set_server_enabled)
 
     client = TestClient(_build_app())
-    resp = client.put("/api/system/mcp-servers/demo-mcp/status", json={"enabled": False})
+    resp = client.put("/api/system/mcp-servers/sequentialthinking/status", json={"enabled": False})
     assert resp.status_code == 200, resp.text
     payload = resp.json()
     assert payload["success"] is True
     assert payload["enabled"] is False
     assert payload["data"]["enabled"] is False
-    assert captured == {"name": "demo-mcp", "enabled": False, "updated_by": "admin"}
+    assert captured == {"name": "sequentialthinking", "enabled": False, "updated_by": "admin"}
 
 
 def test_update_mcp_server_status_not_found(monkeypatch):
@@ -133,34 +133,3 @@ def test_get_mcp_servers_normal_user_is_stripped(monkeypatch):
     assert data_user["name"] == "test-mcp"
     assert data_user["description"] == "test mcp description"
     assert data_user["enabled"] is True
-
-
-def test_create_mcp_server_rejects_extra_config_fields():
-    client = TestClient(_build_app())
-    resp = client.post(
-        "/api/system/mcp-servers",
-        json={
-            "slug": "demo-mcp",
-            "name": "Demo MCP",
-            "transport": "streamable_http",
-            "url": "https://example.com/mcp",
-            "enabled": True,
-        },
-    )
-
-    assert resp.status_code == 422, resp.text
-
-
-def test_update_mcp_server_rejects_extra_config_fields():
-    client = TestClient(_build_app())
-    resp = client.put(
-        "/api/system/mcp-servers/demo-mcp",
-        json={
-            "name": "Demo MCP",
-            "transport": "streamable_http",
-            "url": "https://example.com/mcp",
-            "slug": "renamed-mcp",
-        },
-    )
-
-    assert resp.status_code == 422, resp.text

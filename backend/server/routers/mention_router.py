@@ -17,42 +17,40 @@ class MentionFileItem(BaseModel):
     name: str
     path: str
     is_dir: bool
-    source: str
 
 
 @mention_router.get("/search", response_model=list[MentionFileItem])
 async def search_mention_files(
-    thread_id: str | None = Query(None, description="当前聊天会话 ID；为空时仅搜索用户工作区"),
+    thread_id: str = Query(..., description="当前聊天会话 ID"),
     query: str = Query("", description="模糊搜索关键字"),
-    sources: str | None = Query(None, description="搜索来源：workspace,thread；为空时自动选择"),
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    提及文件模糊搜索接口：未创建 thread 时只搜索用户 workspace；已有 thread 时可搜索当前对话文件。
+    提及文件模糊搜索接口：使用 Redis 二进制缓存进行极速过滤，防止大文件递归卡死。
+    调用前校验 thread 归属权，防止 IDOR 越权访问他人会话文件。
     """
-    uid = str(current_user.uid)
-    effective_thread_id: str | None = None
+    user_id = str(current_user.id)
 
-    if thread_id:
-        conv_repo = ConversationRepository(db)
-        conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
-        if conversation:
-            if conversation.uid != uid or conversation.status == "deleted":
-                raise HTTPException(status_code=404, detail="对话线程不存在")
-            effective_thread_id = thread_id
-        else:
-            try:
-                from yuxi.agents.backends.sandbox.paths import validate_thread_id
+    # NOTE: 校验 thread 归属权，防止恶意用户传入他人 thread_id 遍历文件
+    conv_repo = ConversationRepository(db)
+    conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
+    if conversation:
+        if conversation.user_id != user_id or conversation.status == "deleted":
+            raise HTTPException(status_code=404, detail="对话线程不存在")
+    else:
+        # NOTE: 如果是尚未在数据库记录的全新对话（还未发送首条消息），在格式校验安全的前提下放行。
+        # 此时该 thread 专属的 uploads/outputs 目录还没创建或为空，
+        # 用户仅能安全地搜索到自己全局的工作区 (workspace) 文件。
+        try:
+            from yuxi.agents.backends.sandbox.paths import validate_thread_id
 
-                validate_thread_id(thread_id)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="非法的 thread_id 格式")
+            validate_thread_id(thread_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="非法的 thread_id 格式")
 
-    source_list = [item.strip() for item in sources.split(",")] if sources else None
     return await search_mention_files_in_index(
-        thread_id=effective_thread_id,
-        uid=uid,
+        thread_id=thread_id,
+        user_id=user_id,
         query=query,
-        sources=source_list,
     )

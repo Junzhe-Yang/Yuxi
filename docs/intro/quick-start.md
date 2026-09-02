@@ -3,7 +3,7 @@
 欢迎使用 Yuxi（语析），这是一个智能知识库和知识图谱 Agent 开发平台。
 本指南将帮助你在几分钟内启动并运行系统，使你能够利用 LangGraph、RAG 技术和知识图谱构建 AI 驱动的知识应用。
 
-![系统架构图](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/arch.png)
+![系统架构图](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260326130844668.png)
 
 
 ::: tip 提示
@@ -20,7 +20,7 @@
 
 ```bash
 # 克隆最新版本
-git clone --branch v0.7.0 --depth 1 https://github.com/xerrors/Yuxi.git
+git clone --branch v0.6.2 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 ```
 
@@ -28,7 +28,7 @@ cd Yuxi
 
 | 版本 | 适用场景 |
 |------|----------|
-| v0.7.0 | 当前稳定版本，推荐生产使用 |
+| v0.6.x | 当前开发版本，包含最新特性 |
 | main | 开发版本，包含最新特性（可能不稳定） |
 
 ### 步骤二：配置环境变量

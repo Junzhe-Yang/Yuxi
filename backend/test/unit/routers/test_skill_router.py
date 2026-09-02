@@ -3,285 +3,159 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from server.routers.skill_router import skills, user_skills
+from server.routers.skill_router import skills
 from server.utils.auth_middleware import get_admin_user, get_db, get_required_user
 from yuxi.storage.postgres.models_business import Skill, User
 
 
-def _build_app(*, role: str = "admin") -> FastAPI:
+def _build_app(*, allow_admin: bool = True) -> FastAPI:
     app = FastAPI()
     app.include_router(skills, prefix="/api")
-    app.include_router(user_skills, prefix="/api")
 
     async def fake_db():
         return None
 
-    async def fake_required_user():
+    async def fake_admin_user():
+        if not allow_admin:
+            raise HTTPException(status_code=403, detail="需要管理员权限")
         return User(
-            username=role,
-            uid=role,
+            username="admin",
+            user_id="admin",
             password_hash="x",
-            role=role,
-            department_id=1,
+            role="admin",
         )
 
-    async def fake_admin_user():
-        if role not in {"admin", "superadmin"}:
-            raise HTTPException(status_code=403, detail="需要管理员权限")
-        return await fake_required_user()
+    async def fake_required_user():
+        return User(
+            username="admin" if allow_admin else "user",
+            user_id="admin" if allow_admin else "user",
+            password_hash="x",
+            role="admin" if allow_admin else "user",
+        )
 
     app.dependency_overrides[get_db] = fake_db
-    app.dependency_overrides[get_required_user] = fake_required_user
     app.dependency_overrides[get_admin_user] = fake_admin_user
+    app.dependency_overrides[get_required_user] = fake_required_user
     return app
 
 
-def _skill(
-    slug: str = "demo",
-    *,
-    source_type: str = "upload",
-    created_by: str = "admin",
-    enabled: bool = True,
-    user_uids: list[str] | None = None,
-) -> Skill:
-    return Skill(
-        slug=slug,
-        name=slug,
-        description="demo skill",
-        source_type=source_type,
-        dir_path=f"skills/{slug}",
-        share_config={"access_level": "user", "department_ids": [], "user_uids": user_uids or [created_by]},
-        enabled=enabled,
-        created_by=created_by,
-        updated_by=created_by,
-    )
-
-
-def test_list_visible_skills_route_returns_allowed_levels_and_can_manage(monkeypatch):
-    async def fake_list_visible_skills_for_management(_db, user):
-        assert user.uid == "admin"
-        return [_skill()]
-
-    monkeypatch.setattr(
-        "server.routers.skill_router.list_visible_skills_for_management",
-        fake_list_visible_skills_for_management,
-    )
-
-    client = TestClient(_build_app())
-    resp = client.get("/api/system/skills")
-
-    assert resp.status_code == 200, resp.text
-    payload = resp.json()
-    assert payload["success"] is True
-    assert payload["data"][0]["slug"] == "demo"
-    assert payload["data"][0]["can_manage"] is True
-    assert payload["allowed_access_levels"] == ["global", "department", "user"]
-
-
-def test_list_visible_skills_route_allows_normal_user_readonly_items(monkeypatch):
-    async def fake_list_visible_skills_for_management(_db, user):
-        assert user.uid == "user"
+def test_list_skills_route_returns_data(monkeypatch):
+    async def fake_list_skills(_db):
         return [
-            _skill(slug="owned-disabled", created_by="user", enabled=False),
-            _skill(slug="shared", created_by="other", user_uids=["user"]),
+            Skill(
+                slug="demo",
+                name="demo",
+                description="demo skill",
+                dir_path="skills/demo",
+            )
         ]
 
-    monkeypatch.setattr(
-        "server.routers.skill_router.list_visible_skills_for_management",
-        fake_list_visible_skills_for_management,
-    )
+    monkeypatch.setattr("server.routers.skill_router.list_skills", fake_list_skills)
 
-    client = TestClient(_build_app(role="user"))
+    app = _build_app()
+    client = TestClient(app)
     resp = client.get("/api/system/skills")
-
-    assert resp.status_code == 200, resp.text
-    payload = resp.json()
-    assert payload["success"] is True
-    assert [(item["slug"], item["can_manage"]) for item in payload["data"]] == [
-        ("owned-disabled", True),
-        ("shared", False),
-    ]
-    assert payload["allowed_access_levels"] == ["user"]
-
-
-def test_list_accessible_skills_route(monkeypatch):
-    async def fake_list_accessible_skills(_db, user):
-        assert user.uid == "user"
-        return [_skill(created_by="user")]
-
-    monkeypatch.setattr("server.routers.skill_router.list_accessible_skills", fake_list_accessible_skills)
-
-    client = TestClient(_build_app(role="user"))
-    resp = client.get("/api/skills/accessible")
-
     assert resp.status_code == 200, resp.text
     payload = resp.json()
     assert payload["success"] is True
     assert payload["data"][0]["slug"] == "demo"
-    assert payload["data"][0]["can_manage"] is True
 
 
-def test_prepare_skill_upload_route(monkeypatch):
-    captured: dict[str, object] = {}
+def test_skill_management_requires_admin():
+    app = _build_app(allow_admin=False)
+    client = TestClient(app)
 
-    async def fake_prepare_skill_upload(_db, *, filename, file_bytes, operator):
-        captured["filename"] = filename
-        captured["file_bytes"] = file_bytes.decode("utf-8")
-        captured["operator_uid"] = operator.uid
-        return {"draft_id": "draft-1", "items": [{"slug": "demo", "success": True}]}
+    dependency_resp = client.get("/api/system/skills/dependency-options")
+    assert dependency_resp.status_code == 403
 
-    monkeypatch.setattr("server.routers.skill_router.prepare_skill_upload", fake_prepare_skill_upload)
-
-    client = TestClient(_build_app(role="user"))
-    resp = client.post(
-        "/api/skills/import/prepare",
-        files={"file": ("SKILL.md", b"---\nname: demo\ndescription: demo skill\n---\n", "text/markdown")},
+    import_resp = client.post(
+        "/api/system/skills/import",
+        files={"file": ("demo.zip", b"not zip", "application/zip")},
     )
+    assert import_resp.status_code == 403
 
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["draft_id"] == "draft-1"
-    assert captured == {
-        "filename": "SKILL.md",
-        "file_bytes": "---\nname: demo\ndescription: demo skill\n---\n",
-        "operator_uid": "user",
-    }
+    delete_resp = client.delete("/api/system/skills/demo")
+    assert delete_resp.status_code == 403
 
 
-def test_remote_skill_prepare_and_confirm_routes(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_prepare_remote_skill_install(_db, *, source, skills, operator):
-        captured["prepare"] = {"source": source, "skills": skills, "operator_uid": operator.uid}
-        return {"draft_id": "draft-remote", "items": [{"slug": "frontend-design", "success": True}]}
-
-    async def fake_confirm_skill_install_draft(_db, *, draft_id, share_config, operator):
-        captured["confirm"] = {"draft_id": draft_id, "share_config": share_config, "operator_uid": operator.uid}
-        return [{"slug": "frontend-design", "success": True}]
-
-    monkeypatch.setattr("server.routers.skill_router.prepare_remote_skill_install", fake_prepare_remote_skill_install)
-    monkeypatch.setattr("server.routers.skill_router.confirm_skill_install_draft", fake_confirm_skill_install_draft)
-
-    client = TestClient(_build_app(role="user"))
-    prepare_resp = client.post(
-        "/api/skills/remote/prepare",
-        json={"source": "anthropics/skills", "skills": ["frontend-design"]},
-    )
-    confirm_resp = client.post(
-        "/api/skills/install-drafts/draft-remote/confirm",
-        json={"share_config": {"access_level": "user", "department_ids": [], "user_uids": ["user"]}},
-    )
-
-    assert prepare_resp.status_code == 200, prepare_resp.text
-    assert confirm_resp.status_code == 200, confirm_resp.text
-    assert captured["prepare"] == {
-        "source": "anthropics/skills",
-        "skills": ["frontend-design"],
-        "operator_uid": "user",
-    }
-    assert captured["confirm"]["draft_id"] == "draft-remote"
-    assert captured["confirm"]["operator_uid"] == "user"
-
-
-def test_discard_skill_draft_route(monkeypatch):
+def test_import_skill_route_accepts_skill_md(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def fake_discard_skill_install_draft(*, draft_id, operator):
-        captured["draft_id"] = draft_id
-        captured["operator_uid"] = operator.uid
+    async def fake_import_skill_zip(_db, *, filename, file_bytes, created_by):
+        captured["filename"] = filename
+        captured["file_bytes"] = file_bytes.decode("utf-8")
+        captured["created_by"] = created_by
+        return Skill(
+            slug="demo",
+            name="demo",
+            description="demo skill",
+            dir_path="skills/demo",
+            created_by=created_by,
+            updated_by=created_by,
+        )
 
-    monkeypatch.setattr("server.routers.skill_router.discard_skill_install_draft", fake_discard_skill_install_draft)
+    monkeypatch.setattr("server.routers.skill_router.import_skill_zip", fake_import_skill_zip)
 
-    client = TestClient(_build_app(role="user"))
-    resp = client.delete("/api/skills/install-drafts/draft-1")
+    app = _build_app()
+    client = TestClient(app)
 
+    resp = client.post(
+        "/api/system/skills/import",
+        files={"file": ("SKILL.md", b"---\nname: demo\ndescription: demo skill\n---\n", "text/markdown")},
+    )
     assert resp.status_code == 200, resp.text
-    assert captured == {"draft_id": "draft-1", "operator_uid": "user"}
+    assert captured["filename"] == "SKILL.md"
+    assert "name: demo" in captured["file_bytes"]
+    assert captured["created_by"] == "admin"
 
 
-def test_dependency_options_route_checks_manage_permission(monkeypatch):
-    captured: dict[str, object] = {}
+def test_update_skill_file_passes_operator(monkeypatch):
+    captured: dict[str, str] = {}
 
-    async def fake_get_manageable_skill_or_raise(_db, user, slug):
-        captured["manageable"] = {"slug": slug, "operator_uid": user.uid}
-        return _skill(slug=slug)
+    async def fake_update_skill_file(_db, *, slug, relative_path, content, updated_by):
+        captured["slug"] = slug
+        captured["relative_path"] = relative_path
+        captured["content"] = content
+        captured["updated_by"] = updated_by
 
-    async def fake_get_skill_dependency_options(_db, user, slug=None):
-        captured["options"] = {"slug": slug, "operator_uid": user.uid}
-        return {"tools": [{"slug": "calculator", "name": "Calculator"}], "mcps": ["mcp-a"], "skills": ["other"]}
+    monkeypatch.setattr("server.routers.skill_router.update_skill_file", fake_update_skill_file)
 
-    monkeypatch.setattr("server.routers.skill_router.get_manageable_skill_or_raise", fake_get_manageable_skill_or_raise)
+    app = _build_app()
+    client = TestClient(app)
+
+    resp = client.put(
+        "/api/system/skills/demo/file",
+        json={
+            "path": "SKILL.md",
+            "content": "---\nname: demo\ndescription: demo\n---\n# Demo\n",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["slug"] == "demo"
+    assert captured["relative_path"] == "SKILL.md"
+    assert captured["updated_by"] == "admin"
+
+
+def test_dependency_options_route(monkeypatch):
+    async def fake_get_skill_dependency_options(_db):
+        return {
+            "tools": ["calculator"],
+            "mcps": ["mcp-a"],
+            "skills": ["demo"],
+        }
+
     monkeypatch.setattr("server.routers.skill_router.get_skill_dependency_options", fake_get_skill_dependency_options)
 
-    client = TestClient(_build_app())
-    resp = client.get("/api/system/skills/dependency-options?slug=demo")
-
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.get("/api/system/skills/dependency-options")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["skills"] == ["other"]
-    assert captured["manageable"] == {"slug": "demo", "operator_uid": "admin"}
-    assert captured["options"] == {"slug": "demo", "operator_uid": "admin"}
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"]["tools"] == ["calculator"]
 
 
-def test_skill_tree_and_file_routes_check_management_read_permission(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_get_management_readable_skill_or_raise(_db, user, slug):
-        captured.setdefault("read", []).append({"slug": slug, "operator_uid": user.uid})
-        return _skill(slug=slug, created_by="user", enabled=False)
-
-    async def fake_get_skill_tree(_db, slug):
-        captured["tree_slug"] = slug
-        return [{"name": "SKILL.md", "path": "SKILL.md", "is_dir": False}]
-
-    async def fake_read_skill_file(_db, slug, path):
-        captured["file"] = {"slug": slug, "path": path}
-        return {"path": path, "content": "---\nname: demo\n---\n"}
-
-    monkeypatch.setattr(
-        "server.routers.skill_router.get_management_readable_skill_or_raise",
-        fake_get_management_readable_skill_or_raise,
-    )
-    monkeypatch.setattr("server.routers.skill_router.get_skill_tree", fake_get_skill_tree)
-    monkeypatch.setattr("server.routers.skill_router.read_skill_file", fake_read_skill_file)
-
-    client = TestClient(_build_app(role="user"))
-    tree_resp = client.get("/api/system/skills/demo/tree")
-    file_resp = client.get("/api/system/skills/demo/file?path=SKILL.md")
-
-    assert tree_resp.status_code == 200, tree_resp.text
-    assert file_resp.status_code == 200, file_resp.text
-    assert captured["read"] == [
-        {"slug": "demo", "operator_uid": "user"},
-        {"slug": "demo", "operator_uid": "user"},
-    ]
-    assert captured["tree_slug"] == "demo"
-    assert captured["file"] == {"slug": "demo", "path": "SKILL.md"}
-
-
-def test_skill_export_route_still_checks_manage_permission(monkeypatch, tmp_path):
-    captured: dict[str, object] = {}
-    export_path = tmp_path / "demo.zip"
-    export_path.write_bytes(b"zip")
-
-    async def fake_get_manageable_skill_or_raise(_db, user, slug):
-        captured["manageable"] = {"slug": slug, "operator_uid": user.uid}
-        return _skill(slug=slug)
-
-    async def fake_export_skill_zip(_db, slug):
-        captured["export_slug"] = slug
-        return str(export_path), "demo.zip"
-
-    monkeypatch.setattr("server.routers.skill_router.get_manageable_skill_or_raise", fake_get_manageable_skill_or_raise)
-    monkeypatch.setattr("server.routers.skill_router.export_skill_zip", fake_export_skill_zip)
-
-    client = TestClient(_build_app())
-    resp = client.get("/api/system/skills/demo/export")
-
-    assert resp.status_code == 200, resp.text
-    assert captured["manageable"] == {"slug": "demo", "operator_uid": "admin"}
-    assert captured["export_slug"] == "demo"
-
-
-def test_update_skill_dependencies_route_passes_operator(monkeypatch):
+def test_update_skill_dependencies_route(monkeypatch):
     captured: dict[str, object] = {}
 
     async def fake_update_skill_dependencies(
@@ -291,18 +165,27 @@ def test_update_skill_dependencies_route_passes_operator(monkeypatch):
         tool_dependencies,
         mcp_dependencies,
         skill_dependencies,
-        operator,
+        updated_by,
     ):
         captured["slug"] = slug
         captured["tool_dependencies"] = tool_dependencies
         captured["mcp_dependencies"] = mcp_dependencies
         captured["skill_dependencies"] = skill_dependencies
-        captured["operator_uid"] = operator.uid
-        return _skill(slug=slug)
+        captured["updated_by"] = updated_by
+        return Skill(
+            slug=slug,
+            name=slug,
+            description="demo",
+            dir_path=f"skills/{slug}",
+            tool_dependencies=tool_dependencies,
+            mcp_dependencies=mcp_dependencies,
+            skill_dependencies=skill_dependencies,
+        )
 
     monkeypatch.setattr("server.routers.skill_router.update_skill_dependencies", fake_update_skill_dependencies)
 
-    client = TestClient(_build_app())
+    app = _build_app()
+    client = TestClient(app)
     resp = client.put(
         "/api/system/skills/demo/dependencies",
         json={
@@ -311,37 +194,88 @@ def test_update_skill_dependencies_route_passes_operator(monkeypatch):
             "skill_dependencies": ["other-skill"],
         },
     )
-
     assert resp.status_code == 200, resp.text
-    assert captured == {
-        "slug": "demo",
-        "tool_dependencies": ["calculator"],
-        "mcp_dependencies": ["mcp-a"],
-        "skill_dependencies": ["other-skill"],
-        "operator_uid": "admin",
-    }
+    assert captured["slug"] == "demo"
+    assert captured["tool_dependencies"] == ["calculator"]
+    assert captured["mcp_dependencies"] == ["mcp-a"]
+    assert captured["skill_dependencies"] == ["other-skill"]
+    assert captured["updated_by"] == "admin"
 
 
-def test_builtin_routes_require_admin():
-    client = TestClient(_build_app(role="user"))
+def test_list_remote_skills_route(monkeypatch):
+    async def fake_list_remote_skills(source: str):
+        assert source == "anthropics/skills"
+        return [{"name": "frontend-design", "description": "demo"}]
 
-    resp = client.get("/api/system/skills/builtin")
+    monkeypatch.setattr("server.routers.skill_router.list_remote_skills", fake_list_remote_skills)
 
-    assert resp.status_code == 403
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post("/api/system/skills/remote/list", json={"source": "anthropics/skills"})
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"] == [{"name": "frontend-design", "description": "demo"}]
 
 
-def test_sync_builtin_skills_route(monkeypatch):
+def test_install_remote_skill_route(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def fake_init_builtin_skills(_db, *, created_by):
+    async def fake_install_remote_skill(_db, *, source, skill, created_by):
+        captured["source"] = source
+        captured["skill"] = skill
         captured["created_by"] = created_by
-        return [_skill(slug="builtin-demo", source_type="builtin")]
+        return Skill(
+            slug="frontend-design",
+            name="frontend-design",
+            description="demo skill",
+            dir_path="skills/frontend-design",
+            created_by=created_by,
+            updated_by=created_by,
+        )
 
-    monkeypatch.setattr("server.routers.skill_router.init_builtin_skills", fake_init_builtin_skills)
+    monkeypatch.setattr("server.routers.skill_router.install_remote_skill", fake_install_remote_skill)
 
-    client = TestClient(_build_app())
-    resp = client.post("/api/system/skills/builtin/sync")
-
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/system/skills/remote/install",
+        json={"source": "anthropics/skills", "skill": "frontend-design"},
+    )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"][0]["slug"] == "builtin-demo"
-    assert captured == {"created_by": "admin"}
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"]["slug"] == "frontend-design"
+    assert captured["source"] == "anthropics/skills"
+    assert captured["skill"] == "frontend-design"
+    assert captured["created_by"] == "admin"
+
+
+def test_list_skills_route_normal_user_success(monkeypatch):
+    async def fake_list_skills(_db):
+        return [
+            Skill(
+                slug="test-skill",
+                name="test-skill-name",
+                description="test skill description",
+                dir_path="skills/test-skill",
+            )
+        ]
+
+    monkeypatch.setattr("server.routers.skill_router.list_skills", fake_list_skills)
+
+    # 普通用户应该也能成功获取列表，但返回的字段应被安全白名单投影过滤
+    app = _build_app(allow_admin=False)
+    client = TestClient(app)
+    resp = client.get("/api/system/skills")
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    skill_data = payload["data"][0]
+    assert skill_data["slug"] == "test-skill"
+    assert skill_data["name"] == "test-skill-name"
+    # NOTE: 验证敏感字段如 dir_path、created_by 以及其它元数据已全部被白名单机制过滤，不发生越权泄露
+    assert "dir_path" not in skill_data
+    assert "created_by" not in skill_data
+    assert "updated_by" not in skill_data
+    assert "content_hash" not in skill_data

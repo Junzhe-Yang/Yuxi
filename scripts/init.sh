@@ -138,10 +138,6 @@ for image in "${images[@]}"; do
     fi
 done
 
-echo "🔄 Pulling enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest..."
-docker pull enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
-echo "✅ Successfully pulled enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
-
 echo ""
 echo "🎉 Initialization complete!"
 echo "=========================="

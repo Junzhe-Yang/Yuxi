@@ -1,56 +1,36 @@
-from langchain.chat_models import BaseChatModel
+import os
+import traceback
+
+from langchain.chat_models import BaseChatModel, init_chat_model
 from pydantic import SecretStr
 
-from yuxi import config as sys_config
-from yuxi.models.providers.cache import model_cache
+from yuxi import config
+from yuxi.services.model_cache import is_v2_spec_format
 from yuxi.utils import get_docker_safe_url
 from yuxi.utils.logging_config import logger
 
-# 这些提供商的 OpenAI 兼容流式接口，在 LangGraph v3 事件流累积工具调用时会丢失
-# tool_call 的关键字段（siliconflow MiniMax 丢 name、alibaba 百炼丢 id），空值会被写入
-# checkpoint，导致工具结果无法按 tool_call_id 关联、工具状态永远停留在“进行中”。
-# 对这些提供商在工具调用阶段禁用流式（正文回答仍流式）以拿到完整 tool_call。
-# 该缺陷属 LangChain v3 流式协议上游问题（langchain#37420 / langchainjs#10937 /
-# langgraphjs#2496），截至 langchain-core 1.4.4 仍未修复，待上游修复后可移除本处理。
-_NON_STREAMING_TOOL_CALL_PROVIDERS = ("siliconflow", "alibaba")
 
+def load_chat_model_v2(spec: str, **kwargs) -> BaseChatModel:
+    """根据 v2 spec（provider_id:model_id）加载 LangChain 聊天模型。
 
-def _requires_non_streaming_tool_calls(provider_id: str, model_id: str) -> bool:
-    return provider_id.startswith(_NON_STREAMING_TOOL_CALL_PROVIDERS)
-
-
-def resolve_chat_model_spec(model_spec: str | None, *, fallback: str | None = None) -> str:
-    """解析空模型配置，不吞掉已经配置但无效的模型值。
-
-    这里仅处理模型为空时的优先级：请求或配置值、调用方 fallback、系统默认模型；
-    具体模型是否存在、是否为聊天模型仍由 model_cache 校验。
+    v2 spec 格式使用冒号分隔，如: siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash
+    数据来源为数据库中的 model_providers 表，通过全局缓存访问。
     """
-    for candidate in (model_spec, fallback, sys_config.default_model):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    raise ValueError("model spec 不能为空")
+    from yuxi.services.model_cache import model_cache
 
-
-def load_chat_model(fully_specified_name: str | None, **kwargs) -> BaseChatModel:
-    fully_specified_name = resolve_chat_model_spec(fully_specified_name)
-
-    info = model_cache.get_model_info(fully_specified_name)
+    info = model_cache.get_model_info(spec)
     if not info:
-        available_specs = model_cache.get_all_specs("chat")
-        available_ids = [item.spec for item in available_specs[:10]]
-        raise ValueError(
-            f"Unknown model spec: '{fully_specified_name}'. "
-            f"Available chat models ({len(available_specs)}): {available_ids}"
-        )
+        raise ValueError(f"Unknown v2 model spec: {spec}")
 
     if info.model_type != "chat":
-        raise ValueError(f"Model {fully_specified_name} is not a chat model (type={info.model_type})")
+        raise ValueError(f"Model {spec} is not a chat model (type={info.model_type})")
 
     api_key = info.api_key
     base_url = get_docker_safe_url(info.base_url)
 
-    logger.debug(f"Loading model {fully_specified_name} with provider_type={info.provider_type}")
+    logger.debug(f"[v2] Loading model {spec} with provider_type={info.provider_type}")
 
+    # 根据 provider_type 选择合适的 LangChain 模型
     if info.provider_type == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
@@ -60,7 +40,7 @@ def load_chat_model(fully_specified_name: str | None, **kwargs) -> BaseChatModel
             base_url=base_url,
             **kwargs,
         )
-    if info.provider_type == "gemini":
+    elif info.provider_type == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
@@ -68,17 +48,87 @@ def load_chat_model(fully_specified_name: str | None, **kwargs) -> BaseChatModel
             google_api_key=SecretStr(api_key),
             **kwargs,
         )
+    else:
+        # 默认使用 OpenAI 兼容层（openai, openrouter, ollama, lmstudio 等）
+        from langchain_openai import ChatOpenAI
 
-    from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=info.model_id,
+            api_key=SecretStr(api_key),
+            base_url=base_url,
+            stream_usage=True,
+            **kwargs,
+        )
 
-    openai_kwargs = dict(kwargs)
-    if _requires_non_streaming_tool_calls(info.provider_id, info.model_id):
-        openai_kwargs.setdefault("disable_streaming", "tool_calling")
 
-    return ChatOpenAI(
-        model=info.model_id,
-        api_key=SecretStr(api_key),
-        base_url=base_url,
-        stream_usage=True,
-        **openai_kwargs,
-    )
+def load_chat_model(fully_specified_name: str, **kwargs) -> BaseChatModel:
+    """
+    Load a chat model from a fully specified name.
+    """
+    # v2 判断：第一个特殊字符为冒号则走 v2 路径
+    if is_v2_spec_format(fully_specified_name):
+        from yuxi.services.model_cache import model_cache
+
+        info = model_cache.get_model_info(fully_specified_name)
+        if info:
+            return load_chat_model_v2(fully_specified_name, **kwargs)
+
+        # 缓存均未命中，报错并列出可用模型
+        available_specs = model_cache.get_all_specs("chat")
+        available_ids = [s.spec for s in available_specs[:10]]
+        raise ValueError(
+            f"Unknown v2 model spec: '{fully_specified_name}'. "
+            f"Available chat models ({len(available_specs)}): {available_ids}"
+        )
+
+    logger.warning(f"旧版本的模型选择逻辑已废弃，建议尽快迁移至新的模型配置；当前模型选择参数: {fully_specified_name=}")
+
+    # v1 逻辑：spec 必须包含 /
+    if "/" not in fully_specified_name:
+        raise ValueError(
+            f"Invalid model spec: '{fully_specified_name}'. "
+            f"v1 format requires 'provider/model_name', v2 format requires 'provider_id:model_id'"
+        )
+
+    provider, model = fully_specified_name.split("/", maxsplit=1)
+
+    assert provider != "custom", "[弃用] 自定义模型已移除，请在 yuxi/config/static/models.py 中配置"
+
+    model_info = config.model_names.get(provider)
+    if not model_info:
+        raise ValueError(f"Unknown model provider: {provider}")
+
+    env_var = model_info.env
+
+    api_key = os.getenv(env_var) or env_var
+
+    base_url = get_docker_safe_url(model_info.base_url)
+
+    if provider in ["openai", "deepseek"]:
+        model_spec = f"{provider}:{model}"
+        logger.debug(f"[offical] Loading model {model_spec} with kwargs {kwargs}")
+        return init_chat_model(model_spec, **kwargs)
+
+    elif provider in ["dashscope"]:
+        from langchain_deepseek import ChatDeepSeek
+
+        return ChatDeepSeek(
+            model=model,
+            api_key=SecretStr(api_key),
+            base_url=base_url,
+            api_base=base_url,
+            stream_usage=True,
+        )
+
+    else:
+        try:  # 其他模型，默认使用OpenAIBase, like openai, zhipuai
+            from langchain_openai import ChatOpenAI
+
+            return ChatOpenAI(
+                model=model,
+                api_key=SecretStr(api_key),
+                base_url=base_url,
+                stream_usage=True,
+            )
+        except Exception as e:
+            raise ValueError(f"Model provider {provider} load failed, {e} \n {traceback.format_exc()}")

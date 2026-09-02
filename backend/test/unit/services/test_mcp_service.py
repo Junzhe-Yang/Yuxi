@@ -1,38 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
-import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from yuxi.agents.mcp import service as mcp_service
-from yuxi.storage.postgres import manager as postgres_manager
-from yuxi.storage.postgres.models_business import MCPServer
-
-
-class _AsyncSessionContext:
-    def __init__(self, db):
-        self.db = db
-
-    async def __aenter__(self):
-        return self.db
-
-    async def __aexit__(self, *_args):
-        return False
-
-
-@pytest_asyncio.fixture
-async def mcp_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(MCPServer.__table__.create)
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-
-    await engine.dispose()
+from yuxi.services.mcp import tool_registry_service as mcp_service
 
 
 class _FakeClient:
@@ -41,61 +12,6 @@ class _FakeClient:
 
     async def get_tools(self):
         return self._tools
-
-
-async def test_ensure_builtin_mcp_servers_removes_retired_system_server(monkeypatch, mcp_session):
-    retired_server = MCPServer(
-        slug="sequentialthinking",
-        name="sequentialthinking",
-        description="old builtin",
-        transport="streamable_http",
-        url="https://remote.mcpservers.org/sequentialthinking/mcp",
-        enabled=1,
-        created_by="system",
-        updated_by="system",
-    )
-    mcp_session.add(retired_server)
-    await mcp_session.commit()
-
-    monkeypatch.setattr(
-        postgres_manager.pg_manager,
-        "get_async_session_context",
-        lambda: _AsyncSessionContext(mcp_session),
-    )
-
-    await mcp_service.ensure_builtin_mcp_servers_in_db()
-
-    retired = await mcp_session.scalar(select(MCPServer).where(MCPServer.slug == "sequentialthinking"))
-    chart = await mcp_session.scalar(select(MCPServer).where(MCPServer.slug == "mcp-server-chart"))
-    assert retired is None
-    assert chart is not None
-
-
-async def test_ensure_builtin_mcp_servers_preserves_user_server_with_retired_slug(monkeypatch, mcp_session):
-    user_server = MCPServer(
-        slug="sequentialthinking",
-        name="用户自定义 MCP",
-        description="user managed",
-        transport="streamable_http",
-        url="https://example.com/mcp",
-        enabled=1,
-        created_by="admin",
-        updated_by="admin",
-    )
-    mcp_session.add(user_server)
-    await mcp_session.commit()
-
-    monkeypatch.setattr(
-        postgres_manager.pg_manager,
-        "get_async_session_context",
-        lambda: _AsyncSessionContext(mcp_session),
-    )
-
-    await mcp_service.ensure_builtin_mcp_servers_in_db()
-
-    server = await mcp_session.scalar(select(MCPServer).where(MCPServer.slug == "sequentialthinking"))
-    assert server is not None
-    assert server.created_by == "admin"
 
 
 async def test_get_enabled_mcp_tools_loads_latest_config_from_db(monkeypatch):
@@ -126,12 +42,31 @@ async def test_get_enabled_mcp_tools_loads_latest_config_from_db(monkeypatch):
     assert captured == [
         {
             "server_name": "demo",
-            "additional_servers": {
-                "demo": {"transport": "stdio", "command": "demo", "disabled_tools": ["tool_b"]}
-            },
+            "additional_servers": {"demo": {"transport": "stdio", "command": "demo", "disabled_tools": ["tool_b"]}},
             "disabled_tools": ["tool_b"],
         }
     ]
+
+
+async def test_get_enabled_mcp_tools_times_out_slow_runtime_discovery(monkeypatch):
+    async def fake_get_enabled_mcp_server_config(server_name: str, db=None):
+        del db
+        assert server_name == "slow"
+        return {"transport": "streamable_http", "url": "http://slow.example/mcp", "disabled_tools": []}
+
+    async def fake_get_mcp_tools(server_name: str, additional_servers=None, disabled_tools=None, **kwargs):
+        del additional_servers, disabled_tools, kwargs
+        assert server_name == "slow"
+        await asyncio.sleep(0.05)
+        return ["late-tool"]
+
+    monkeypatch.setattr(mcp_service, "MCP_TOOLS_DISCOVERY_TIMEOUT_SECONDS", 0.01, raising=False)
+    monkeypatch.setattr(mcp_service, "get_enabled_mcp_server_config", fake_get_enabled_mcp_server_config)
+    monkeypatch.setattr(mcp_service, "get_mcp_tools", fake_get_mcp_tools)
+
+    tools = await mcp_service.get_enabled_mcp_tools("slow")
+
+    assert tools == []
 
 
 async def test_get_mcp_tools_rebuilds_cache_when_config_hash_changes(monkeypatch):

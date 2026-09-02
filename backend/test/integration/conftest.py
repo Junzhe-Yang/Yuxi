@@ -34,22 +34,6 @@ HTTP_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 SANDBOX_CONTAINER_PREFIX = os.getenv("YUXI_SANDBOX_CONTAINER_PREFIX", "yuxi-sandbox")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def ensure_live_api_schema():
-    if not ADMIN_LOGIN or not ADMIN_PASSWORD:
-        return
-
-    async def run_schema_setup() -> None:
-        from yuxi.storage.postgres.manager import pg_manager
-
-        pg_manager.initialize()
-        await pg_manager.create_tables()
-        await pg_manager.ensure_business_schema()
-        await pg_manager.ensure_knowledge_schema()
-
-    anyio.run(run_schema_setup)
-
-
 def _require_admin_credentials() -> tuple[str, str]:
     if not ADMIN_LOGIN or not ADMIN_PASSWORD:
         pytest.skip("Integration credentials are not configured via TEST_USERNAME / TEST_PASSWORD.")
@@ -146,15 +130,15 @@ def cleanup_test_knowledge_databases():
             prefixes = ("pytest_", "py_test")
             for entry in databases:
                 name = entry.get("name") or ""
-                slug = entry.get("slug")
-                if not slug or not isinstance(name, str) or not name.startswith(prefixes):
+                db_id = entry.get("db_id")
+                if not db_id or not isinstance(name, str) or not name.startswith(prefixes):
                     continue
                 try:
-                    delete_response = await client.delete(f"/api/knowledge/databases/{slug}", headers=headers)
+                    delete_response = await client.delete(f"/api/knowledge/databases/{db_id}", headers=headers)
                     if delete_response.status_code not in (200, 404):
-                        print(f"Warning: Failed to cleanup knowledge database {slug}: {delete_response.text}")
+                        print(f"Warning: Failed to cleanup knowledge database {db_id}: {delete_response.text}")
                 except Exception as exc:
-                    print(f"Warning: Exception during cleanup of {slug}: {exc}")
+                    print(f"Warning: Exception during cleanup of {db_id}: {exc}")
 
     try:
         anyio.run(run_cleanup)
@@ -222,15 +206,9 @@ async def standard_user(test_client: httpx.AsyncClient, admin_headers: dict[str,
     username = f"pytest_user_{uuid.uuid4().hex[:8]}"
     password = f"Pw!{uuid.uuid4().hex[:8]}"
 
-    # 用户隔离重构后所有登录用户必须绑定部门，创建时显式指定一个已存在部门
-    dept_response = await test_client.get("/api/departments", headers=admin_headers)
-    if dept_response.status_code != 200 or not dept_response.json():
-        pytest.fail(f"No department available to bind standard user: {dept_response.text}")
-    department_id = dept_response.json()[0]["id"]
-
     response = await test_client.post(
         "/api/auth/users",
-        json={"username": username, "password": password, "role": "user", "department_id": department_id},
+        json={"username": username, "password": password, "role": "user"},
         headers=admin_headers,
     )
     if response.status_code != 200:
@@ -239,7 +217,7 @@ async def standard_user(test_client: httpx.AsyncClient, admin_headers: dict[str,
     user_payload = response.json()
     login_response = await test_client.post(
         "/api/auth/token",
-        data={"username": user_payload["uid"], "password": password},
+        data={"username": user_payload["user_id"], "password": password},
     )
     if login_response.status_code != 200:
         pytest.fail(
@@ -267,7 +245,7 @@ async def standard_user(test_client: httpx.AsyncClient, admin_headers: dict[str,
             await anyio.sleep(0.3)
         if cleanup_error is not None:
             assert cleanup_error.status_code == 200, (
-                f"Failed to cleanup test user {user_payload['uid']}: {cleanup_error.text}"
+                f"Failed to cleanup test user {user_payload['user_id']}: {cleanup_error.text}"
             )
 
 
@@ -281,7 +259,7 @@ async def knowledge_database(
     unique_id = uuid.uuid4().hex
     timestamp = int(time.time() * 1000000)
     db_name = f"pytest_kb_{timestamp}_{unique_id}"
-    kb_id = None
+    db_id = None
 
     try:
         create_response = await test_client.post(
@@ -289,8 +267,8 @@ async def knowledge_database(
             json={
                 "database_name": db_name,
                 "description": "Pytest managed knowledge base",
-                "embedding_model_spec": "siliconflow-cn:Pro/BAAI/bge-m3",
-                "kb_type": "milvus",
+                "embed_model_name": "siliconflow/BAAI/bge-m3",
+                "kb_type": "lightrag",
                 "additional_params": {},
             },
             headers=admin_headers,
@@ -298,7 +276,7 @@ async def knowledge_database(
 
         if create_response.status_code == 200:
             db_payload = create_response.json()
-            kb_id = db_payload["kb_id"]
+            db_id = db_payload["db_id"]
         elif create_response.status_code == 409:
             error_detail = create_response.json().get("detail", "")
             pytest.fail(f"Knowledge database name conflict: {error_detail}. Please clean up old test databases first.")
@@ -307,13 +285,13 @@ async def knowledge_database(
                 f"Failed to create knowledge database (status={create_response.status_code}): {create_response.text}"
             )
 
-        yield db_payload
+        yield db_payload if db_id else {"db_id": db_id, "name": db_name}
 
     finally:
-        if kb_id:
+        if db_id:
             try:
-                delete_response = await test_client.delete(f"/api/knowledge/databases/{kb_id}", headers=admin_headers)
+                delete_response = await test_client.delete(f"/api/knowledge/databases/{db_id}", headers=admin_headers)
                 if delete_response.status_code != 200:
-                    print(f"Warning: Failed to cleanup knowledge database {kb_id}: {delete_response.text}")
+                    print(f"Warning: Failed to cleanup knowledge database {db_id}: {delete_response.text}")
             except Exception as exc:
-                print(f"Warning: Exception during cleanup of {kb_id}: {exc}")
+                print(f"Warning: Exception during cleanup of {db_id}: {exc}")

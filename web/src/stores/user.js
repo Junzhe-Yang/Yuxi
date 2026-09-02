@@ -7,7 +7,7 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem('user_token') || '')
   const userId = ref(null)
   const username = ref('')
-  const uid = ref('')
+  const userIdLogin = ref('')
   const phoneNumber = ref('')
   const avatar = ref('')
   const userRole = ref('')
@@ -23,7 +23,7 @@ export const useUserStore = defineStore('user', () => {
   async function login(credentials) {
     try {
       const formData = new FormData()
-      // 支持uid或phone_number登录
+      // 支持user_id或phone_number登录
       formData.append('username', credentials.loginId) // 使用loginId作为通用登录标识
       formData.append('password', credentials.password)
 
@@ -52,7 +52,7 @@ export const useUserStore = defineStore('user', () => {
       token.value = data.access_token
       userId.value = data.user_id
       username.value = data.username
-      uid.value = data.uid
+      userIdLogin.value = data.user_id_login
       phoneNumber.value = data.phone_number || ''
       avatar.value = data.avatar || ''
       userRole.value = data.role
@@ -74,7 +74,7 @@ export const useUserStore = defineStore('user', () => {
     token.value = ''
     userId.value = null
     username.value = ''
-    uid.value = ''
+    userIdLogin.value = ''
     phoneNumber.value = ''
     avatar.value = ''
     userRole.value = ''
@@ -110,7 +110,7 @@ export const useUserStore = defineStore('user', () => {
       token.value = data.access_token
       userId.value = data.user_id
       username.value = data.username
-      uid.value = data.uid
+      userIdLogin.value = data.user_id_login
       phoneNumber.value = data.phone_number || ''
       avatar.value = data.avatar || ''
       userRole.value = data.role
@@ -146,37 +146,19 @@ export const useUserStore = defineStore('user', () => {
   }
 
   // 用户管理功能
-  async function getUsers({ pageSize = 100 } = {}) {
+  async function getUsers() {
     try {
-      const users = []
-      let skip = 0
-
-      while (true) {
-        const params = new URLSearchParams({
-          skip: String(skip),
-          limit: String(pageSize)
-        })
-        const response = await fetch(`/api/auth/users?${params.toString()}`, {
-          headers: {
-            ...getAuthHeaders()
-          }
-        })
-
-        if (!response.ok) {
-          throw new Error('获取用户列表失败')
+      const response = await fetch('/api/auth/users', {
+        headers: {
+          ...getAuthHeaders()
         }
+      })
 
-        const batch = await response.json()
-        users.push(...batch)
-
-        if (batch.length < pageSize) {
-          break
-        }
-
-        skip += pageSize
+      if (!response.ok) {
+        throw new Error('获取用户列表失败')
       }
 
-      return users
+      return await response.json()
     } catch (error) {
       console.error('获取用户列表错误:', error)
       throw error
@@ -250,8 +232,8 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  // 验证用户名并生成uid
-  async function validateUsernameAndGenerateUid(username) {
+  // 验证用户名并生成user_id
+  async function validateUsernameAndGenerateUserId(username) {
     try {
       const response = await fetch('/api/auth/validate-username', {
         method: 'POST',
@@ -323,7 +305,7 @@ export const useUserStore = defineStore('user', () => {
       // 更新本地状态
       userId.value = userData.id
       username.value = userData.username
-      uid.value = userData.uid
+      userIdLogin.value = userData.user_id
       phoneNumber.value = userData.phone_number || ''
       avatar.value = userData.avatar || ''
       userRole.value = userData.role
@@ -376,7 +358,7 @@ export const useUserStore = defineStore('user', () => {
     token,
     userId,
     username,
-    uid,
+    userIdLogin,
     phoneNumber,
     avatar,
     userRole,
@@ -398,7 +380,7 @@ export const useUserStore = defineStore('user', () => {
     createUser,
     updateUser,
     deleteUser,
-    validateUsernameAndGenerateUid,
+    validateUsernameAndGenerateUserId,
     uploadAvatar,
     getCurrentUser,
     updateProfile

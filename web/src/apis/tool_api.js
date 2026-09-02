@@ -13,8 +13,8 @@ const BASE_URL = '/api/system/tools'
  * @returns {Promise} - 工具列表
  */
 export const getTools = async (category = null) => {
-  const query = category ? `?${new URLSearchParams({ category }).toString()}` : ''
-  return apiAdminGet(`${BASE_URL}${query}`)
+  const params = category ? { category } : {}
+  return apiAdminGet(BASE_URL, params)
 }
 
 /**
@@ -24,6 +24,10 @@ export const getTools = async (category = null) => {
 export const getToolOptions = async () => {
   return apiAdminGet(`${BASE_URL}/options`)
 }
+
+// =============================================================================
+// === 导出为对象形式（兼容现有代码风格）===
+// =============================================================================
 
 export const toolApi = {
   getTools,

@@ -65,7 +65,6 @@ const DEFAULT_OPTIONS = {
   targetLagMs: 900,
   minReserveChars: 48,
   maxReserveChars: 240,
-  maxBufferedChars: 3000,
   emaAlpha: 0.2,
   basePaceMultiplier: 0.92,
   overflowDivisor: 180,
@@ -192,12 +191,6 @@ const getDynamicReserve = (controller, options, now) => {
   return Math.ceil(reserveSize * (1 - decayProgress))
 }
 
-const getBufferedOverflow = (pending, options) => {
-  const maxBufferedChars = Number(options.maxBufferedChars)
-  if (!Number.isFinite(maxBufferedChars) || maxBufferedChars <= 0) return 0
-  return Math.max(0, pending - Math.floor(maxBufferedChars))
-}
-
 const getChunkSize = (controller, pending, options) => {
   const now = Date.now()
   const deltaMs = Math.max(16, now - controller.lastFrameAt)
@@ -251,7 +244,7 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
     return controllersByThread.get(threadId)
   }
 
-  const emitDelta = (threadId, messageId, forceFlush = false, immediateBudget = null) => {
+  const emitDelta = (threadId, messageId, forceFlush = false) => {
     const threadState = getThreadState(threadId)
     const threadControllers = controllersByThread.get(threadId)
     const controller = threadControllers?.get(messageId)
@@ -265,13 +258,7 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
       return
     }
 
-    const hasImmediateBudget =
-      Number.isFinite(immediateBudget) && Math.floor(immediateBudget) > 0
-    const budget = forceFlush
-      ? pending
-      : hasImmediateBudget
-        ? Math.min(pending, Math.floor(immediateBudget))
-        : getChunkSize(controller, pending, resolvedOptions)
+    const budget = forceFlush ? pending : getChunkSize(controller, pending, resolvedOptions)
     let remaining = budget
     const delta = stripBufferedFields(controller.skeleton)
 
@@ -400,17 +387,6 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
         existing.buffer += toolCallChunk.args || ''
         controller.toolCallArgBuffers.set(index, existing)
       })
-    }
-
-    const overflowBudget = getBufferedOverflow(getBufferedLength(controller), resolvedOptions)
-    if (overflowBudget > 0) {
-      if (controller.frameId !== null) {
-        caf(controller.frameId)
-      }
-      controller.scheduled = false
-      controller.frameId = null
-      emitDelta(threadId, chunk.id, false, overflowBudget)
-      return
     }
 
     schedule(threadId, chunk.id)

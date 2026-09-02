@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import timedelta
 
@@ -7,7 +8,7 @@ import jwt
 import pytest
 from yuxi.utils.datetime_utils import utc_now
 
-from yuxi.utils.auth_utils import JWT_ALGORITHM, JWT_AUDIENCE, AuthUtils
+from server.utils.auth_utils import JWT_ALGORITHM, JWT_AUDIENCE, LEGACY_JWT_SECRET_KEY, AuthUtils
 
 
 def test_hash_password_uses_argon2():
@@ -16,6 +17,13 @@ def test_hash_password_uses_argon2():
     assert hashed.startswith("$argon2")
     assert AuthUtils.verify_password(hashed, "secret-password") is True
     assert AuthUtils.verify_password(hashed, "wrong-password") is False
+
+
+def test_verify_password_accepts_legacy_sha256_format():
+    legacy_hash = hashlib.sha256(b"secret-passwordsalt").hexdigest()
+
+    assert AuthUtils.verify_password(f"{legacy_hash}:salt", "secret-password") is True
+    assert AuthUtils.verify_password(f"{legacy_hash}:salt", "wrong-password") is False
 
 
 def test_access_token_contains_instance_claims(monkeypatch):
@@ -50,12 +58,11 @@ def test_access_token_requires_configured_secret_in_production(monkeypatch):
         AuthUtils.create_access_token({"sub": "1"})
 
 
-def test_access_token_rejects_public_default_secret_in_production(monkeypatch):
-    monkeypatch.setenv("YUXI_ENV", "production")
-    monkeypatch.setenv("JWT_SECRET_KEY", "yuxi_know_secure_key")
+def test_access_token_requires_non_default_secret(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET_KEY", LEGACY_JWT_SECRET_KEY)
     monkeypatch.setenv("YUXI_INSTANCE_ID", "pytest-instance")
 
-    with pytest.raises(ValueError, match="公开默认密钥"):
+    with pytest.raises(ValueError, match="历史默认密钥"):
         AuthUtils.create_access_token({"sub": "1"})
 
 

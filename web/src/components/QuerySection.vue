@@ -13,7 +13,45 @@
               @press-enter.prevent="onQuery"
             />
             <div class="search-actions">
-              <span class="query-hint">Enter 检索知识库内容</span>
+              <div class="query-examples-compact">
+                <div class="examples-label-group">
+                  <a-tooltip title="点击手动生成测试问题" placement="bottom">
+                    <a-button
+                      type="text"
+                      size="small"
+                      class="examples-label-btn"
+                      @click="() => generateSampleQuestions(false)"
+                    >
+                      示例:
+                    </a-button>
+                  </a-tooltip>
+                </div>
+                <div class="examples-container">
+                  <!-- 加载中或生成中 -->
+                  <div v-if="loadingQuestions || generatingQuestions" class="loading-text">
+                    <a-spin size="small" />
+                    <span>{{ generatingQuestions ? 'AI生成中...' : '加载中...' }}</span>
+                  </div>
+
+                  <!-- 示例轮播 -->
+                  <transition v-else-if="queryExamples.length > 0" name="fade" mode="out-in">
+                    <a-button
+                      type="link"
+                      :key="currentExampleIndex"
+                      @click="useQueryExample(queryExamples[currentExampleIndex])"
+                      size="small"
+                      class="example-btn"
+                    >
+                      {{ queryExamples[currentExampleIndex] }}
+                    </a-button>
+                  </transition>
+
+                  <!-- 空状态 - 添加文件后会自动生成 -->
+                  <span v-else style="color: var(--gray-500); font-size: 12px"
+                    >暂无问题，请点击左侧按钮生成</span
+                  >
+                </div>
+              </div>
               <div style="display: flex; gap: 12px; align-items: center">
                 <a-tooltip :title="showRawData ? '切换至格式化显示' : '切换至原始数据'">
                   <a-button
@@ -48,7 +86,200 @@
 
           <!-- 格式化显示 -->
           <div v-else>
-            <div v-if="typeof queryResult === 'string'" class="result-text">
+            <!-- LightRAG 返回对象格式 -->
+            <div v-if="isLightRAGResult" class="lightrag-result">
+              <!-- 元数据信息 -->
+              <div v-if="queryResult.metadata" class="lightrag-metadata">
+                <div class="metadata-row">
+                  <span class="metadata-label">查询模式:</span>
+                  <span class="metadata-value query-mode">{{
+                    queryResult.metadata.query_mode
+                  }}</span>
+                </div>
+                <div v-if="queryResult.metadata.processing_info" class="metadata-row">
+                  <span class="metadata-label">统计:</span>
+                  <span class="metadata-value">
+                    找到
+                    {{ queryResult.metadata.processing_info.total_entities_found || 0 }} 个实体,
+                    {{ queryResult.metadata.processing_info.total_relations_found || 0 }} 个关系,
+                    使用 {{ queryResult.metadata.processing_info.final_chunks_count || 0 }} 个文档块
+                  </span>
+                </div>
+                <!-- 高级关键词 -->
+                <div v-if="queryResult.metadata.keywords?.high_level" class="metadata-row">
+                  <span class="metadata-label">高级关键词:</span>
+                  <span class="keywords-text">{{
+                    queryResult.metadata.keywords.high_level.join('、')
+                  }}</span>
+                </div>
+                <!-- 低级关键词 -->
+                <div v-if="queryResult.metadata.keywords?.low_level" class="metadata-row">
+                  <span class="metadata-label">低级关键词:</span>
+                  <span class="keywords-text">{{
+                    queryResult.metadata.keywords.low_level.join('、')
+                  }}</span>
+                </div>
+              </div>
+
+              <a-collapse v-model:activeKey="lightragActiveKeys" ghost>
+                <!-- 实体信息 -->
+                <a-collapse-panel
+                  v-if="queryResult.data.entities && queryResult.data.entities.length > 0"
+                  key="entities"
+                >
+                  <template #header>
+                    <div class="collapse-header">
+                      <Network :size="16" />
+                      <span>实体 ({{ queryResult.data.entities.length }})</span>
+                    </div>
+                  </template>
+                  <div class="lightrag-entities">
+                    <div
+                      v-for="(entity, index) in queryResult.data.entities"
+                      :key="index"
+                      class="lightrag-entity-card"
+                    >
+                      <div class="entity-header">
+                        <span class="entity-name">{{ entity.entity_name }}</span>
+                        <span class="entity-type">{{ entity.entity_type }}</span>
+                      </div>
+                      <div class="entity-description">
+                        <strong>描述:</strong> {{ entity.description }}
+                      </div>
+                      <div class="entity-meta">
+                        <span class="meta-item">
+                          <strong>来源:</strong> {{ formatSourceIds(entity.source_id) }}
+                        </span>
+                        <a
+                          v-if="entity.file_path"
+                          :href="entity.file_path"
+                          target="_blank"
+                          class="meta-link"
+                        >
+                          <FileText :size="14" />
+                          查看文件
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </a-collapse-panel>
+
+                <!-- 关系信息 -->
+                <a-collapse-panel
+                  v-if="queryResult.data.relationships && queryResult.data.relationships.length > 0"
+                  key="relationships"
+                >
+                  <template #header>
+                    <div class="collapse-header">
+                      <Link :size="16" />
+                      <span>关系 ({{ queryResult.data.relationships.length }})</span>
+                    </div>
+                  </template>
+                  <div class="lightrag-relationships">
+                    <div
+                      v-for="(rel, index) in queryResult.data.relationships"
+                      :key="index"
+                      class="lightrag-relationship-card"
+                    >
+                      <div class="relationship-header">
+                        <span class="rel-src">{{ rel.src_id }}</span>
+                        <ArrowRight :size="14" class="rel-arrow" />
+                        <span class="rel-tgt">{{ rel.tgt_id }}</span>
+                        <span v-if="rel.weight !== undefined" class="rel-weight">
+                          权重: {{ rel.weight.toFixed(2) }}
+                        </span>
+                      </div>
+                      <div class="relationship-description">
+                        <strong>描述:</strong> {{ rel.description }}
+                      </div>
+                      <div v-if="rel.keywords" class="relationship-keywords">
+                        <Tags :size="14" />
+                        <span class="keywords-text">{{ rel.keywords }}</span>
+                      </div>
+                      <div class="relationship-meta">
+                        <span class="meta-item"> <strong>来源:</strong> {{ rel.source_id }} </span>
+                        <a
+                          v-if="rel.file_path"
+                          :href="rel.file_path"
+                          target="_blank"
+                          class="meta-link"
+                        >
+                          <FileText :size="14" />
+                          查看文件
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </a-collapse-panel>
+
+                <!-- 文档块 -->
+                <a-collapse-panel
+                  v-if="queryResult.data.chunks && queryResult.data.chunks.length > 0"
+                  key="chunks"
+                >
+                  <template #header>
+                    <div class="collapse-header">
+                      <FileText :size="16" />
+                      <span>文档块 ({{ queryResult.data.chunks.length }})</span>
+                    </div>
+                  </template>
+                  <div class="lightrag-chunks">
+                    <div
+                      v-for="(chunk, index) in queryResult.data.chunks"
+                      :key="index"
+                      class="lightrag-chunk-card"
+                    >
+                      <div class="chunk-header">
+                        <span class="chunk-ref">引用 [{{ chunk.reference_id }}]</span>
+                        <span class="chunk-id">{{ chunk.chunk_id }}</span>
+                      </div>
+                      <div class="chunk-content">
+                        {{ chunk.content }}
+                      </div>
+                      <div class="chunk-meta">
+                        <a
+                          v-if="chunk.file_path"
+                          :href="chunk.file_path"
+                          target="_blank"
+                          class="meta-link"
+                        >
+                          <FileText :size="14" />
+                          查看文件
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </a-collapse-panel>
+
+                <!-- 参考文档 -->
+                <a-collapse-panel
+                  v-if="queryResult.data.references && queryResult.data.references.length > 0"
+                  key="references"
+                >
+                  <template #header>
+                    <div class="collapse-header">
+                      <FileText :size="16" />
+                      <span>参考文档 ({{ queryResult.data.references.length }})</span>
+                    </div>
+                  </template>
+                  <div class="lightrag-references">
+                    <div
+                      v-for="(ref, index) in queryResult.data.references"
+                      :key="index"
+                      class="reference-item"
+                    >
+                      <span class="reference-id">[{{ ref.reference_id }}]</span>
+                      <a :href="ref.file_path" target="_blank" class="reference-link">
+                        {{ extractFileName(ref.file_path) }}
+                      </a>
+                    </div>
+                  </div>
+                </a-collapse-panel>
+              </a-collapse>
+            </div>
+
+            <!-- LightRAG 返回字符串格式 -->
+            <div v-else-if="typeof queryResult === 'string'" class="result-text">
               {{ queryResult }}
             </div>
 
@@ -59,15 +290,7 @@
               </div>
               <div v-else>
                 <div class="result-summary">
-                  <span>检索到 {{ queryResult.length }} 个相关文档块：</span>
-                  <a-button
-                    type="text"
-                    size="small"
-                    class="clear-results-btn"
-                    @click="clearQueryResult"
-                  >
-                    清空
-                  </a-button>
+                  <strong>检索到 {{ queryResult.length }} 个相关文档块：</strong>
                 </div>
                 <div v-for="(chunk, index) in queryResult" :key="index" class="result-item">
                   <div class="result-header">
@@ -109,57 +332,20 @@
           </div>
           <!-- 关闭格式化显示的div -->
         </div>
-
-        <div v-else-if="showQuerySuggestions" class="query-suggestions">
-          <div v-if="loadingQuestions || generatingQuestions" class="suggestions-loading">
-            <a-spin size="small" />
-            <span>{{ generatingQuestions ? '正在生成示例问题...' : '正在加载示例问题...' }}</span>
-          </div>
-
-          <div v-else-if="queryExamples.length > 0" class="suggestions-list">
-            <div class="suggestions-title">示例问题</div>
-            <button
-              v-for="(example, index) in visibleQueryExamples"
-              :key="`${index}-${example}`"
-              type="button"
-              class="suggestion-row"
-              @click="useQueryExample(example)"
-            >
-              <SearchOutlined class="suggestion-icon" />
-              <span class="suggestion-text">{{ example }}</span>
-            </button>
-            <button
-              type="button"
-              class="suggestion-row"
-              @click="() => generateSampleQuestions(false)"
-            >
-              <RefreshCw class="suggestion-icon" />
-              <span class="suggestion-text">重新生成</span>
-            </button>
-          </div>
-
-          <div v-else class="suggestions-empty">
-            <button class="suggestion-row" @click="() => generateSampleQuestions(false)">
-              <RefreshCw class="suggestion-icon" />
-              <span class="suggestion-text">生成示例问题</span>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useDatabaseStore } from '@/stores/database'
 import { message } from 'ant-design-vue'
 import { queryApi } from '@/apis/knowledge_api'
 import { SearchOutlined } from '@ant-design/icons-vue'
-import { Braces, RefreshCw } from 'lucide-vue-next'
+import { Braces, Tags, Network, Link, FileText, ArrowRight } from 'lucide-vue-next'
 
 const store = useDatabaseStore()
-const MAX_VISIBLE_EXAMPLES = 10
 
 defineProps({
   visible: {
@@ -178,41 +364,67 @@ defineEmits(['toggleVisible'])
 const searchLoading = computed(() => store.state.searchLoading)
 const queryResult = ref('')
 const showRawData = ref(false)
-const showQuerySuggestions = computed(() => !searchLoading.value && !queryResult.value)
+
+// 判断是否是 LightRAG 格式的查询结果
+const isLightRAGResult = computed(() => {
+  return (
+    queryResult.value &&
+    typeof queryResult.value === 'object' &&
+    queryResult.value.data &&
+    (queryResult.value.data.entities || queryResult.value.data.relationships)
+  )
+})
 
 // 查询测试
 const queryText = ref('')
 
 // 示例问题相关
 const queryExamples = ref([])
-const visibleQueryExamples = ref([])
+const currentExampleIndex = ref(0)
 const loadingQuestions = ref(false)
 const generatingQuestions = ref(false)
 
-const updateQueryExamples = (questions = []) => {
-  queryExamples.value = questions
-  const shuffledQuestions = [...questions]
-  for (let index = shuffledQuestions.length - 1; index > 0; index--) {
-    const targetIndex = Math.floor(Math.random() * (index + 1))
-    const currentQuestion = shuffledQuestions[index]
-    shuffledQuestions[index] = shuffledQuestions[targetIndex]
-    shuffledQuestions[targetIndex] = currentQuestion
+// 示例轮播相关
+let exampleCarouselInterval = null
+
+// LightRAG 折叠面板激活的 key
+const lightragActiveKeys = ref(['entities', 'relationships', 'chunks'])
+
+// 方法定义
+
+// 格式化 source_id（限制显示长度）
+const formatSourceIds = (sourceId) => {
+  if (!sourceId) return ''
+  const ids = sourceId.split('<SEP>')
+  if (ids.length > 1) {
+    return `${ids[0]} ... (+${ids.length - 1} 个来源)`
   }
-  visibleQueryExamples.value = shuffledQuestions.slice(0, MAX_VISIBLE_EXAMPLES)
+  return sourceId
+}
+
+// 从文件路径中提取文件名
+const extractFileName = (filePath) => {
+  if (!filePath) return ''
+  try {
+    const parts = filePath.split('/')
+    return parts[parts.length - 1]
+  } catch {
+    return filePath
+  }
 }
 
 // 加载示例问题
 const loadSampleQuestions = async () => {
-  if (!store.database?.kb_id) return
+  if (!store.database?.db_id) return
 
   try {
     loadingQuestions.value = true
-    const data = await queryApi.getSampleQuestions(store.database.kb_id)
+    const data = await queryApi.getSampleQuestions(store.database.db_id)
     if (data.questions && data.questions.length > 0) {
-      updateQueryExamples(data.questions)
+      queryExamples.value = data.questions
     } else {
       // 如果没有问题，清空列表
-      updateQueryExamples()
+      queryExamples.value = []
     }
   } catch (error) {
     // 404表示还没有生成问题，清空问题列表
@@ -221,7 +433,7 @@ const loadSampleQuestions = async () => {
       error?.message?.includes('404') ||
       error?.message?.includes('还没有生成')
     ) {
-      updateQueryExamples()
+      queryExamples.value = []
     } else {
       console.error('加载示例问题失败:', error)
     }
@@ -232,20 +444,26 @@ const loadSampleQuestions = async () => {
 
 // 清空问题列表
 const clearQuestions = () => {
-  updateQueryExamples()
+  queryExamples.value = []
+  currentExampleIndex.value = 0
+  stopExampleCarousel()
 }
 
 // 生成示例问题
 const generateSampleQuestions = async (silent = false) => {
-  if (!store.database?.kb_id) return
+  if (!store.database?.db_id) return
 
   try {
     generatingQuestions.value = true
-    const data = await queryApi.generateSampleQuestions(store.database.kb_id, 10)
+    const data = await queryApi.generateSampleQuestions(store.database.db_id, 10)
     if (data.questions && data.questions.length > 0) {
-      updateQueryExamples(data.questions)
+      queryExamples.value = data.questions
       if (!silent) {
         message.success(`成功生成 ${data.questions.length} 个测试问题`)
+      }
+      // 开始轮播
+      if (!exampleCarouselInterval) {
+        startExampleCarousel()
       }
     }
   } catch (error) {
@@ -277,20 +495,38 @@ const useQueryExample = (example) => {
   onQuery()
 }
 
-const clearQueryResult = () => {
-  queryResult.value = ''
+const startExampleCarousel = () => {
+  if (exampleCarouselInterval) return
+
+  exampleCarouselInterval = setInterval(() => {
+    currentExampleIndex.value = (currentExampleIndex.value + 1) % queryExamples.value.length
+  }, 10000) // 每10秒切换一次
+}
+
+const stopExampleCarousel = () => {
+  if (exampleCarouselInterval) {
+    clearInterval(exampleCarouselInterval)
+    exampleCarouselInterval = null
+  }
 }
 
 // 监听知识库ID变化，切换知识库时重新加载问题
 watch(
-  () => store.database?.kb_id,
-  async (newKbId, oldKbId) => {
+  () => store.database?.db_id,
+  async (newDbId, oldDbId) => {
     // 如果知识库ID发生变化
-    if (newKbId && newKbId !== oldKbId) {
+    if (newDbId && newDbId !== oldDbId) {
+      // 停止当前轮播
+      stopExampleCarousel()
       // 清空当前问题列表
-      updateQueryExamples()
+      queryExamples.value = []
+      currentExampleIndex.value = 0
       // 重新加载新知识库的问题
       await loadSampleQuestions()
+      // 如果有问题，启动轮播
+      if (queryExamples.value.length > 0) {
+        startExampleCarousel()
+      }
     }
   },
   { immediate: false }
@@ -308,7 +544,7 @@ const onQuery = async () => {
   const queryMeta = { ...store.meta }
 
   try {
-    const data = await queryApi.queryTest(store.database.kb_id, queryText.value.trim(), queryMeta)
+    const data = await queryApi.queryTest(store.database.db_id, queryText.value.trim(), queryMeta)
     queryResult.value = data
   } catch (error) {
     console.error(error)
@@ -326,7 +562,18 @@ onMounted(async () => {
 
   // 加载示例问题
   await loadSampleQuestions()
+
+  // 如果有示例问题，启动轮播
+  if (queryExamples.value.length > 0) {
+    startExampleCarousel()
+  }
   // 不自动生成，只在创建知识库和添加文件时由 DataBaseInfoView 触发生成
+})
+
+// 组件卸载时停止示例轮播
+onUnmounted(() => {
+  // 停止示例轮播
+  stopExampleCarousel()
 })
 
 // 检查是否已有问题
@@ -366,10 +613,11 @@ defineExpose({
 }
 
 .query-input-container {
-  padding-bottom: 16px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background-color: var(--gray-0);
 }
 
 .search-input-wrapper {
@@ -493,7 +741,7 @@ defineExpose({
   }
 
   .result-list {
-    // padding: 16px;
+    padding: 16px;
 
     .no-results {
       text-align: center;
@@ -502,31 +750,12 @@ defineExpose({
     }
 
     .result-summary {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
       margin-bottom: 12px;
       padding: 10px 14px;
       background-color: var(--main-50);
       border-radius: 6px;
       color: var(--gray-800);
-      font-size: 13px;
-      span {
-        font-weight: 500;
-      }
-    }
-
-    .clear-results-btn {
-      flex: 0 0 auto;
-      color: var(--main-color);
-      background-color: var(--main-100);
-      border-radius: 6px;
-
-      &:hover {
-        color: var(--main-800);
-        background-color: var(--main-200);
-      }
+      font-weight: 500;
     }
 
     .result-item {
@@ -578,7 +807,6 @@ defineExpose({
       .result-content {
         padding: 8px 0;
         line-height: 1.6;
-        font-size: 13px;
         color: var(--gray-900);
         white-space: pre-wrap;
         word-break: break-word;
@@ -621,126 +849,409 @@ defineExpose({
   }
 }
 
-.query-hint {
-  font-size: 12px;
+.query-examples-compact {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.examples-label-btn {
   color: var(--gray-500);
-  line-height: 24px;
-}
-
-.query-suggestions {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px 0 16px;
-}
-
-.suggestions-loading,
-.suggestions-empty {
-  min-height: 72px;
+  font-size: 12px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--gray-500);
-  font-size: 13px;
+  margin-left: -8px;
+  margin-right: -6px;
+
+  &:hover {
+    color: var(--main-color);
+    background-color: var(--gray-100);
+  }
+
+  .anticon {
+    /* Target Ant Design icons directly */
+    font-size: 10px; /* Make icon smaller */
+  }
 }
 
-.suggestions-loading {
+.examples-container {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.loading-text {
+  font-size: 12px;
+  color: var(--gray-400);
+  display: flex;
+  align-items: center;
   gap: 6px;
 }
 
-.suggestions-list {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.suggestions-title {
-  padding: 0 2px;
-  color: var(--gray-600);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 20px;
-}
-
-.suggestion-row {
-  width: fit-content;
-  max-width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 30px;
-  background-color: var(--gray-0);
-  color: var(--gray-800);
+.example-btn {
   text-align: left;
-  cursor: pointer;
-  transition:
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
+  white-space: normal;
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+  color: var(--gray-500);
 
   &:hover {
-    box-shadow: 0 2px 8px var(--shadow-1);
+    color: var(--main-color);
+  }
+}
 
-    .suggestion-icon {
-      color: var(--main-800);
-      opacity: 1;
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// LightRAG 结果样式
+.lightrag-metadata {
+  padding: 12px 16px;
+  background-color: var(--gray-0);
+  border-radius: 8px;
+  margin: 16px;
+  border: 1px solid var(--gray-200);
+
+  .metadata-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    .metadata-label {
+      font-weight: 600;
+      color: var(--gray-700);
+      font-size: 13px;
+    }
+
+    .metadata-value {
+      color: var(--gray-700);
+      font-size: 13px;
+    }
+
+    .query-mode {
+      padding: 2px 8px;
+      background-color: var(--main-100);
+      color: var(--main-700);
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
     }
   }
 
-  &:active {
-    background-color: var(--main-50);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-300);
-    outline-offset: 2px;
+  .keywords-text {
+    color: var(--gray-700);
+    font-size: 13px;
+    line-height: 1.5;
   }
 }
 
-.suggestion-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: break-word;
+.collapse-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--gray-800);
 }
 
-.suggestion-icon {
-  flex: 0 0 auto;
-  color: var(--main-color);
-  font-size: 14px;
-  width: 14px;
-  height: 14px;
-  opacity: 0.82;
-  transition:
-    color 0.2s ease,
-    opacity 0.2s ease;
+.lightrag-entities {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.generate-suggestions-btn {
-  height: auto;
+.lightrag-entity-card {
   background-color: var(--gray-0);
-  border-radius: 40px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 12px;
+  transition: all 0.2s ease;
 
   &:hover {
-    background-color: var(--gray-0);
-    box-shadow: 0 2px 8px var(--shadow-1);
+    border-color: var(--main-300);
+  }
+
+  .entity-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--gray-150);
+
+    .entity-name {
+      font-weight: 600;
+      color: var(--main-color);
+      font-size: 14px;
+    }
+
+    .entity-type {
+      font-size: 12px;
+      color: var(--gray-600);
+      font-weight: 400;
+    }
+  }
+
+  .entity-description {
+    margin-bottom: 8px;
+    line-height: 1.6;
+    color: var(--gray-900);
+    font-size: 13px;
+  }
+
+  .entity-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--gray-700);
+
+    .meta-item {
+      strong {
+        color: var(--gray-500);
+        font-weight: 500;
+        margin-right: 4px;
+      }
+    }
+
+    .meta-link {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--main-color);
+      text-decoration: none;
+      transition: color 0.2s ease;
+
+      &:hover {
+        color: var(--main-bright);
+      }
+    }
   }
 }
 
-@media (max-width: 767px) {
-  .query-hint {
-    display: none;
+.lightrag-relationships {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lightrag-relationship-card {
+  background-color: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 12px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: var(--main-300);
+    box-shadow: 0 2px 8px rgba(1, 97, 121, 0.08);
   }
 
-  .suggestion-row {
-    align-items: flex-start;
+  .relationship-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--gray-150);
+
+    .rel-src,
+    .rel-tgt {
+      font-weight: 600;
+      color: var(--main-color);
+      font-size: 14px;
+    }
+
+    .rel-arrow {
+      color: var(--gray-500);
+      font-size: 12px;
+    }
+
+    .rel-weight {
+      font-size: 12px;
+      color: var(--gray-600);
+      font-weight: 400;
+      margin-left: auto;
+    }
   }
 
-  .suggestion-icon {
-    margin-top: 3px;
+  .relationship-description {
+    margin-bottom: 8px;
+    line-height: 1.6;
+    color: var(--gray-900);
+    font-size: 13px;
+  }
+
+  .relationship-keywords {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background-color: var(--gray-50);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--gray-700);
+
+    .keywords-text {
+      flex: 1;
+    }
+  }
+
+  .relationship-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--gray-700);
+
+    .meta-item {
+      strong {
+        color: var(--gray-500);
+        font-weight: 500;
+        margin-right: 4px;
+      }
+    }
+
+    .meta-link {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--main-color);
+      text-decoration: none;
+      transition: color 0.2s ease;
+
+      &:hover {
+        color: var(--main-bright);
+      }
+    }
+  }
+}
+
+.lightrag-chunks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lightrag-chunk-card {
+  background-color: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 12px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: var(--main-300);
+    box-shadow: 0 2px 8px rgba(1, 97, 121, 0.08);
+  }
+
+  .chunk-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--gray-150);
+
+    .chunk-ref {
+      font-weight: 600;
+      color: var(--main-color);
+      font-size: 13px;
+    }
+
+    .chunk-id {
+      font-size: 11px;
+      color: var(--gray-500);
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+  }
+
+  .chunk-content {
+    margin-bottom: 8px;
+    padding: 8px;
+    background-color: var(--gray-50);
+    border-radius: 4px;
+    line-height: 1.6;
+    color: var(--gray-900);
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .chunk-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    .meta-link {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--main-color);
+      text-decoration: none;
+      transition: color 0.2s ease;
+
+      &:hover {
+        color: var(--main-bright);
+      }
+    }
+  }
+}
+
+.lightrag-references {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reference-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: var(--main-300);
+    background-color: var(--gray-50);
+  }
+
+  .reference-id {
+    font-size: 12px;
+    color: var(--gray-600);
+    font-weight: 500;
+  }
+
+  .reference-link {
+    flex: 1;
+    color: var(--gray-900);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color 0.2s ease;
+
+    &:hover {
+      color: var(--main-color);
+    }
   }
 }
 </style>

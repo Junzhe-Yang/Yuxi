@@ -28,5 +28,3 @@ class AgentStatePayload(TypedDict):
     todos: list
     files: dict
     artifacts: list[str]
-    subagent_runs: list[dict]
-    token_usage: dict | None

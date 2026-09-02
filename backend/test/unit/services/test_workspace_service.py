@@ -11,17 +11,12 @@ from yuxi.agents.backends.sandbox import paths as workspace_paths
 from yuxi.services import workspace_service as svc
 
 
-def _user() -> SimpleNamespace:
-    return SimpleNamespace(id="db-id-1", uid="user-1")
-
-
 def test_workspace_root_creates_default_agents_prompt_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
 
-    root = svc._workspace_root(_user())
+    root = svc._workspace_root(SimpleNamespace(id="user-1"))
 
     agents_file = root / "agents" / "AGENTS.md"
-    assert root == tmp_path / "threads" / "shared" / "user-1" / "workspace"
     assert agents_file.is_file()
     assert agents_file.read_text(encoding="utf-8") == ""
 
@@ -43,7 +38,7 @@ def test_workspace_root_keeps_existing_agents_prompt_file(tmp_path: Path, monkey
     agents_file = agents_dir / "AGENTS.md"
     agents_file.write_text("保留已有内容", encoding="utf-8")
 
-    root = svc._workspace_root(_user())
+    root = svc._workspace_root(SimpleNamespace(id="user-1"))
 
     assert root == tmp_path / "threads" / "shared" / "user-1" / "workspace"
     assert agents_file.read_text(encoding="utf-8") == "保留已有内容"
@@ -58,19 +53,9 @@ def test_workspace_root_rejects_symlink_root(tmp_path: Path, monkeypatch) -> Non
     (user_root / "workspace").symlink_to(outside_root, target_is_directory=True)
 
     with pytest.raises(HTTPException) as exc_info:
-        svc._workspace_root(_user())
+        svc._workspace_root(SimpleNamespace(id="user-1"))
 
     assert exc_info.value.status_code == 403
-
-
-def test_ensure_workspace_default_files_rejects_path_outside_threads_root(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path / "saves"))
-
-    with pytest.raises(ValueError):
-        workspace_paths.ensure_workspace_default_files(tmp_path / "outside-workspace")
 
 
 @pytest.mark.asyncio
@@ -79,7 +64,7 @@ async def test_read_workspace_file_content_returns_unsupported_for_non_utf8_text
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
     target = root / "bad.txt"
     target.write_bytes(b"\xff\xfe\x00")
@@ -94,7 +79,7 @@ async def test_read_workspace_file_content_returns_unsupported_for_non_utf8_text
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_updates_markdown_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
     target = root / "note.md"
     target.write_text("旧内容", encoding="utf-8")
@@ -110,7 +95,7 @@ async def test_write_workspace_file_content_updates_markdown_file(tmp_path: Path
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_updates_txt_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
     target = root / "note.txt"
     target.write_text("old", encoding="utf-8")
@@ -123,7 +108,7 @@ async def test_write_workspace_file_content_updates_txt_file(tmp_path: Path, mon
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_rejects_unsupported_suffix(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
     target = root / "script.py"
     target.write_text("print('hello')", encoding="utf-8")
@@ -138,7 +123,7 @@ async def test_write_workspace_file_content_rejects_unsupported_suffix(tmp_path:
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_rejects_directory_and_missing_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     svc._workspace_root(user)
 
     with pytest.raises(HTTPException) as directory_error:
@@ -158,65 +143,41 @@ async def test_write_workspace_file_content_blocks_path_traversal(tmp_path: Path
         await svc.write_workspace_file_content(
             path="/../outside.md",
             content="x",
-            current_user=_user(),
+            current_user=SimpleNamespace(id="user-1"),
         )
 
     assert exc_info.value.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_upload_workspace_files_writes_files(tmp_path: Path, monkeypatch) -> None:
+async def test_upload_workspace_file_writes_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
-    uploads = [
-        UploadFile(filename="demo.txt", file=BytesIO(b"hello")),
-        UploadFile(filename="notes.md", file=BytesIO(b"# notes")),
-    ]
+    upload = UploadFile(filename="demo.txt", file=BytesIO(b"hello"))
 
-    result = await svc.upload_workspace_files(parent_path="/", files=uploads, current_user=user)
+    result = await svc.upload_workspace_file(parent_path="/", file=upload, current_user=user)
 
     assert result["success"] is True
-    assert [entry["path"] for entry in result["entries"]] == ["/demo.txt", "/notes.md"]
-    assert result["entries"][0]["size"] == 5
+    assert result["entry"]["path"] == "/demo.txt"
+    assert result["entry"]["size"] == 5
     assert (root / "demo.txt").read_bytes() == b"hello"
-    assert (root / "notes.md").read_bytes() == b"# notes"
 
 
 @pytest.mark.asyncio
-async def test_upload_workspace_files_rejects_oversized_file_and_cleans_partial_files(
+async def test_upload_workspace_file_rejects_oversized_file_and_cleans_partial_file(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
     monkeypatch.setattr(svc, "MAX_WORKSPACE_UPLOAD_SIZE_BYTES", 5)
-    user = _user()
+    user = SimpleNamespace(id="user-1")
     root = svc._workspace_root(user)
-    uploads = [
-        UploadFile(filename="small.txt", file=BytesIO(b"12345")),
-        UploadFile(filename="large.txt", file=BytesIO(b"123456")),
-    ]
+    upload = UploadFile(filename="large.txt", file=BytesIO(b"123456"))
 
     with pytest.raises(HTTPException) as exc_info:
-        await svc.upload_workspace_files(parent_path="/", files=uploads, current_user=user)
+        await svc.upload_workspace_file(parent_path="/", file=upload, current_user=user)
 
     assert exc_info.value.status_code == 400
     assert "100 MB" in exc_info.value.detail
-    assert not (root / "small.txt").exists()
     assert not (root / "large.txt").exists()
-
-
-@pytest.mark.asyncio
-async def test_upload_workspace_files_rejects_more_than_limit(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(workspace_paths.conf, "save_dir", str(tmp_path))
-    user = _user()
-    uploads = [
-        UploadFile(filename=f"demo-{index}.txt", file=BytesIO(b"hello"))
-        for index in range(svc.MAX_WORKSPACE_UPLOAD_FILES + 1)
-    ]
-
-    with pytest.raises(HTTPException) as exc_info:
-        await svc.upload_workspace_files(parent_path="/", files=uploads, current_user=user)
-
-    assert exc_info.value.status_code == 400
-    assert f"一次最多上传 {svc.MAX_WORKSPACE_UPLOAD_FILES} 个文件" in exc_info.value.detail

@@ -1,0 +1,50 @@
+{
+  "base_url": "https://your-yuxi.example.com",
+  "auth": {
+    "mode": "login",
+    "login_id_env": "YUXI_LOGIN_ID",
+    "password_env": "YUXI_PASSWORD"
+  },
+  "agent_id": "MedicationReviewLiteAgent",
+  "input_file": "input.example.json",
+  "output_dir": "output/pat-rag-v1-ablation",
+  "concurrency": 1,
+  "request_timeout_seconds": 60,
+  "run_timeout_seconds": 1200,
+  "max_attempts": 2,
+  "max_sse_reconnects": 8,
+  "sse_reconnect_delay_seconds": 1,
+  "verify_tls": true,
+  "write_raw_events": true,
+  "allow_debug_stopped": false,
+  "variants": {
+    "b1_no_anchor_full_chunk": {
+      "agent_config_id": 201,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_method_family": "pat-rag-v1",
+      "expected_experiment_profile": "b1",
+      "expected_trace_schema_version": "4.0"
+    },
+    "m1_anchor_full_chunk": {
+      "agent_config_id": 202,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_method_family": "pat-rag-v1",
+      "expected_experiment_profile": "m1",
+      "expected_trace_schema_version": "4.0"
+    },
+    "m2_anchor_evidence_card": {
+      "agent_config_id": 203,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_method_family": "pat-rag-v1",
+      "expected_experiment_profile": "m2",
+      "expected_trace_schema_version": "4.0"
+    },
+    "m3_anchor_card_patch": {
+      "agent_config_id": 204,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_method_family": "pat-rag-v1",
+      "expected_experiment_profile": "m3",
+      "expected_trace_schema_version": "4.0"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # 项目简介
 
-Yuxi (语析) 是一个智能知识库和知识图谱 Agent 开发平台，能够帮助你构建结合检索增强生成 (RAG) 与知识图谱推理的生产级 AI 应用。该平台基于 LangGraph、Vue.js 3、FastAPI、Milvus 和 Neo4j 构建，提供创建对话式 AI 系统所需的智能体编排、知识检索、图谱推理、工具调用和文件系统能力。
+Yuxi (语析) 是一个智能知识库和知识图谱 Agent 开发平台，能够帮助你构建结合检索增强生成 (RAG) 与知识图谱推理的生产级 AI 应用。该平台基于现代架构构建，采用 LangGraph v1、Vue.js 3、FastAPI 和 LightRAG，提供了创建对话式 AI 系统的全面工具包，这些系统能够理解并对你的业务知识进行推理。
 
 ## 设计理念
 
@@ -17,9 +17,9 @@ Yuxi (语析) 是一个智能知识库和知识图谱 Agent 开发平台，能�
 | 前端 | Vue.js 3, Vite, Ant Design Vue | 现代响应式 UI 框架与组件库 |
 | 状态管理 | Pinia | 前端集中式状态管理 |
 | 后端 API | FastAPI, Uvicorn | 高性能异步 Python Web 框架 |
-| Agent 框架 | LangGraph | Agent 编排、状态管理与 checkpoint |
-| 知识库 | Milvus（可建库入库）、Dify / Notion（只读连接器） | 向量知识库 RAG 与外部只读数据源检索 |
-| 图数据库 | Neo4j | Milvus 知识库内知识图谱存储与查询 |
+| Agent 框架 | LangGraph v1 | 声明式 Agent 编排与状态管理 |
+| 知识库 | LightRAG, Milvus | 基于向量存储的 RAG 实现 |
+| 图数据库 | Neo4j | 知识图谱存储与查询 |
 | 文档处理 | MinerU, PaddleX, RapidOCR | 多格式文档解析与 OCR |
 | 任务队列 | Redis, PostgreSQL Workers | 异步任务处理 |
 | 对象存储 | MinIO | 文件与文档存储 |
@@ -33,7 +33,7 @@ Yuxi 的核心能力不在于“把大模型接进来”，而在于把 **智能
 
 ### 1. 面向真实业务的智能体开发
 
-Yuxi 基于 LangGraph 提供智能体开发能力，不只是一个固定问答入口，而是一套可配置、可扩展的 Agent 运行框架。开发者可以围绕同一个 Agent 配置模型、提示词、工具、MCP、Skills、子智能体与中间件，使“对话能力”变成“可编排的业务能力”。
+Yuxi 基于 LangGraph v1 提供智能体开发能力，不只是一个固定问答入口，而是一套可配置、可扩展的 Agent 运行框架。开发者可以围绕同一个 Agent 配置模型、提示词、工具、MCP、Skills、SubAgents 与中间件，使“对话能力”变成“可编排的业务能力”。
 
 这一层是项目的控制中心，决定了模型如何调用工具、如何访问知识、如何接入文件系统以及如何与其他子智能体协作。
 
@@ -47,11 +47,13 @@ Yuxi 提供完整的知识入库链路，而不是只做检索接口封装。文
 
 ### 3. 知识图谱参与推理，而不只是展示
 
-Yuxi 的知识图谱能力不是孤立的可视化模块，而是和 Milvus 知识库入库链路联动的。系统可以从已入库 chunks 中抽取实体和关系，写入 Neo4j 与 PostgreSQL 并为唯一实体/三元组建立 Milvus 语义索引；检索时可召回图谱实体与三元组，并与 chunk 命中结果融合（RRF），在知识库详情页展示和检索子图。
+Yuxi 的知识图谱能力不是孤立的可视化模块，而是和知识库、Agent 推理链路联动的。
+构建需要理解实体之间关系的应用程序。LightRAG 自动从文档中提取实体和关系，创建系统可以查询以进行复杂推理任务的知识图谱。
+以标准格式上传现有图谱数据，或使用自动构建功能从非结构化文本生成图谱。
 
 ### 4. 面向生产落地的文档理解与平台能力
 
-为了让知识真正可用，Yuxi 集成了 MinerU、PP-Structure-V3、RapidOCR、DeepSeek OCR 等解析能力，覆盖 PDF、Office、Markdown、图片等常见格式，解决原始资料进入系统前的结构化处理问题。
+为了让知识真正可用，Yuxi 集成了 MinerU、PP-Structure-V3、Docling 等解析能力，覆盖 PDF、Office、Markdown、图片等常见格式，解决原始资料进入系统前的结构化处理问题。
 
 在此基础上，平台还补齐了业务落地常用的工程能力，例如：
 

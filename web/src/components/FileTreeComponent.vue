@@ -17,7 +17,11 @@
       <template #icon="{ data, expanded }">
         <slot name="icon" :node="data" :expanded="expanded">
           <template v-if="data.isLeaf">
-            <FileTypeIcon v-if="useFileIcons" :name="data.key" :size="16" />
+            <component
+              v-if="useFileIcons"
+              :is="getFileIcon(data.key)"
+              :style="{ color: getFileIconColor(data.key), fontSize: '16px' }"
+            />
             <FileText v-else :size="16" class="file-icon" />
           </template>
           <template v-else>
@@ -26,7 +30,8 @@
               class="folder-loading-icon"
               aria-label="正在加载"
             ></span>
-            <FileTypeIcon v-else is-dir :size="18" />
+            <FolderOpen v-else-if="expanded" :size="18" class="folder-icon open" />
+            <Folder v-else :size="18" class="folder-icon" />
           </template>
         </slot>
       </template>
@@ -50,8 +55,8 @@
 
 <script setup>
 import { ref } from 'vue'
-import { FileText } from 'lucide-vue-next'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
+import { Folder, FolderOpen, FileText } from 'lucide-vue-next'
+import { getFileIcon, getFileIconColor } from '@/utils/file_utils'
 
 const props = defineProps({
   treeData: {

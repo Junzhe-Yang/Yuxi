@@ -12,9 +12,11 @@
 
     <template #overlay>
       <a-menu class="scrollable-menu">
-        <a-menu-item-group v-for="(providerData, providerId) in v2Models" :key="providerId">
+        <!-- V2 模型列表（按 provider 分组） -->
+        <a-menu-item-group v-for="(providerData, providerId) in v2Models" :key="`v2-${providerId}`">
           <template #title>
             <span>{{ providerId }}</span>
+            <a-tag color="success" size="small" class="provider-tag">新</a-tag>
           </template>
           <a-menu-item
             v-for="model in providerData.models"
@@ -24,13 +26,34 @@
             <div class="model-option">
               <span class="model-option-name">
                 {{ model.display_name }}
-                <span v-if="model.dimension" class="model-dimension">({{ model.dimension }})</span>
+                <span class="model-dimension">({{ model.dimension }})</span>
               </span>
               <span
                 class="model-status-icon"
-                :class="getStatusClass(model.spec)"
-                :title="getStatusTooltip(model.spec)"
-                >{{ getStatusIcon(model.spec) }}</span
+                :class="getV2StatusClass(model.spec)"
+                :title="getV2StatusTooltip(model.spec)"
+                >{{ getV2StatusIcon(model.spec) }}</span
+              >
+            </div>
+          </a-menu-item>
+        </a-menu-item-group>
+
+        <!-- V1 模型列表（过时，仅保留兼容） -->
+        <a-menu-item-group v-if="v1EmbedModels.length" key="v1" title="V1 版本（过时）">
+          <a-menu-item v-for="name in v1EmbedModels" :key="name" @click="handleSelect(name)">
+            <div class="model-option">
+              <span class="model-option-name">
+                {{ name }}
+                <span class="model-dimension"
+                  >({{ configStore.config?.embed_model_names[name]?.dimension }})</span
+                >
+              </span>
+              <a-tag color="default" size="small" class="provider-tag">过时</a-tag>
+              <span
+                class="model-status-icon"
+                :class="getV1StatusClass(name)"
+                :title="getV1StatusTooltip(name)"
+                >{{ getV1StatusIcon(name) }}</span
               >
             </div>
           </a-menu-item>
@@ -41,9 +64,14 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useConfigStore } from '@/stores/config'
+import { embeddingApi } from '@/apis/knowledge_api'
 import { modelProviderApi } from '@/apis/system_api'
+import { message } from 'ant-design-vue'
 import { useModelStatus } from '@/composables/useModelStatus'
+
+const configStore = useConfigStore()
 
 const props = defineProps({
   value: {
@@ -72,18 +100,33 @@ const props = defineProps({
 const emit = defineEmits(['update:value', 'change'])
 
 const v2Models = ref({})
-const { getStatusIcon, getStatusClass, getStatusTooltip, checkV2Statuses } = useModelStatus()
+const v1ModelStatuses = reactive({})
+const {
+  getStatusIcon: getV2StatusIcon,
+  getStatusClass: getV2StatusClass,
+  getStatusTooltip: getV2StatusTooltip,
+  checkV2Statuses
+} = useModelStatus()
+const state = reactive({
+  checkingStatus: false
+})
 
 const displayText = computed(() => props.value || props.placeholder)
+
 const resolvedSize = computed(() => props.size || 'small')
 const modelSelectClasses = computed(() => ({
   'model-select--middle': resolvedSize.value === 'middle',
   'model-select--large': resolvedSize.value === 'large'
 }))
 
+const v1EmbedModels = computed(() => {
+  return Object.keys(configStore?.config?.embed_model_names || {})
+})
+
 const handleOpenChange = async (open) => {
   if (!open) return
-  await fetchV2Models()
+  fetchV2Models()
+  checkV1ModelStatuses()
 }
 
 const fetchV2Models = async () => {
@@ -91,22 +134,60 @@ const fetchV2Models = async () => {
     const response = await modelProviderApi.getV2Models('embedding')
     if (response.success) {
       v2Models.value = response.data || {}
+      // 拉取到 V2 模型列表后，逐一检查状态
       await checkV2ModelStatuses()
     }
   } catch (error) {
-    console.error('获取 embedding 模型失败:', error)
+    console.error('获取 V2 embedding 模型失败:', error)
   }
 }
 
 const checkV2ModelStatuses = async () => {
+  state.checkingStatus = true
   try {
-    const models = Object.values(v2Models.value).flatMap(
-      (providerData) => providerData.models || []
-    )
-    await checkV2Statuses(models)
+    for (const providerData of Object.values(v2Models.value)) {
+      await checkV2Statuses(providerData.models || [])
+    }
   } catch (error) {
-    console.error('检查 embedding 模型状态失败:', error)
+    console.error('检查 V2 模型状态失败:', error)
+  } finally {
+    state.checkingStatus = false
   }
+}
+
+const checkV1ModelStatuses = async () => {
+  try {
+    const response = await embeddingApi.getAllModelsStatus()
+    if (response.status.models) {
+      Object.assign(v1ModelStatuses, response.status.models)
+    }
+  } catch (error) {
+    console.error('检查 V1 模型状态失败:', error)
+    message.error('获取模型状态失败')
+  }
+}
+
+// V1 模型状态辅助函数
+const getV1StatusIcon = (modelId) => {
+  const status = v1ModelStatuses[modelId]
+  if (!status) return '○'
+  if (status.status === 'available') return '✓'
+  if (status.status === 'unavailable') return '✗'
+  if (status.status === 'error') return '⚠'
+  return '○'
+}
+
+const getV1StatusClass = (modelId) => {
+  const status = v1ModelStatuses[modelId]
+  return status?.status || ''
+}
+
+const getV1StatusTooltip = (modelId) => {
+  const status = v1ModelStatuses[modelId]
+  if (!status) return '状态未知'
+  let statusText =
+    { available: '可用', unavailable: '不可用', error: '错误' }[status.status] || '未知'
+  return `${statusText}: ${status.message || '无详细信息'}`
 }
 
 const handleSelect = (value) => {

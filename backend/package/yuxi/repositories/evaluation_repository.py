@@ -2,37 +2,73 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from yuxi.storage.postgres.manager import pg_manager
-from yuxi.storage.postgres.models_knowledge import (
-    EvaluationDataset,
-    EvaluationDatasetItem,
-    EvaluationRun,
-    EvaluationRunItem,
-)
+from yuxi.storage.postgres.models_knowledge import EvaluationBenchmark, EvaluationResult, EvaluationResultDetail
 
 
 class EvaluationRepository:
-    async def create_dataset(self, dataset_data: dict[str, Any]) -> EvaluationDataset:
-        dataset = EvaluationDataset(**dataset_data)
+    async def get_all_benchmarks(self) -> list[EvaluationBenchmark]:
+        """获取所有评估基准"""
         async with pg_manager.get_async_session_context() as session:
-            session.add(dataset)
-        return dataset
+            result = await session.execute(select(EvaluationBenchmark))
+            return list(result.scalars().all())
 
-    async def create_dataset_with_items(
-        self, dataset_data: dict[str, Any], items_data: list[dict[str, Any]]
-    ) -> EvaluationDataset:
-        dataset = EvaluationDataset(**dataset_data)
-        items = [EvaluationDatasetItem(**item) for item in items_data]
+    async def create_benchmark(self, data: dict[str, Any]) -> EvaluationBenchmark:
+        benchmark = EvaluationBenchmark(**data)
         async with pg_manager.get_async_session_context() as session:
-            session.add(dataset)
-            session.add_all(items)
-        return dataset
+            session.add(benchmark)
+        return benchmark
 
-    async def update_dataset(self, dataset_id: str, data: dict[str, Any]) -> EvaluationDataset | None:
+    async def get_benchmark(self, benchmark_id: str) -> EvaluationBenchmark | None:
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(EvaluationDataset).where(EvaluationDataset.dataset_id == dataset_id))
+            result = await session.execute(
+                select(EvaluationBenchmark).where(EvaluationBenchmark.benchmark_id == benchmark_id)
+            )
+            return result.scalar_one_or_none()
+
+    async def list_benchmarks(self, db_id: str) -> list[EvaluationBenchmark]:
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(
+                select(EvaluationBenchmark)
+                .where(EvaluationBenchmark.db_id == db_id)
+                .order_by(EvaluationBenchmark.created_at.desc())
+            )
+            return list(result.scalars().all())
+
+    async def delete_benchmark(self, benchmark_id: str) -> None:
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(
+                select(EvaluationBenchmark).where(EvaluationBenchmark.benchmark_id == benchmark_id)
+            )
+            record = result.scalar_one_or_none()
+            if record is not None:
+                await session.delete(record)
+
+    async def create_result(self, data: dict[str, Any]) -> EvaluationResult:
+        result_row = EvaluationResult(**data)
+        async with pg_manager.get_async_session_context() as session:
+            session.add(result_row)
+        return result_row
+
+    async def get_result(self, task_id: str) -> EvaluationResult | None:
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(select(EvaluationResult).where(EvaluationResult.task_id == task_id))
+            return result.scalar_one_or_none()
+
+    async def list_results(self, db_id: str) -> list[EvaluationResult]:
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(
+                select(EvaluationResult)
+                .where(EvaluationResult.db_id == db_id)
+                .order_by(EvaluationResult.started_at.desc())
+            )
+            return list(result.scalars().all())
+
+    async def update_result(self, task_id: str, data: dict[str, Any]) -> EvaluationResult | None:
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(select(EvaluationResult).where(EvaluationResult.task_id == task_id))
             record = result.scalar_one_or_none()
             if record is None:
                 return None
@@ -40,134 +76,43 @@ class EvaluationRepository:
                 setattr(record, key, value)
             return record
 
-    async def add_dataset_items(self, items_data: list[dict[str, Any]]) -> None:
-        items = [EvaluationDatasetItem(**item) for item in items_data]
+    async def delete_result(self, task_id: str) -> None:
         async with pg_manager.get_async_session_context() as session:
-            session.add_all(items)
-
-    async def get_dataset(self, dataset_id: str) -> EvaluationDataset | None:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(EvaluationDataset).where(EvaluationDataset.dataset_id == dataset_id))
-            return result.scalar_one_or_none()
-
-    async def list_datasets(self, kb_id: str) -> list[EvaluationDataset]:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(EvaluationDataset)
-                .where(EvaluationDataset.kb_id == kb_id)
-                .order_by(EvaluationDataset.created_at.desc())
-            )
-            return list(result.scalars().all())
-
-    async def list_dataset_items(
-        self, dataset_id: str, offset: int = 0, limit: int = 100
-    ) -> list[EvaluationDatasetItem]:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(EvaluationDatasetItem)
-                .where(EvaluationDatasetItem.dataset_id == dataset_id)
-                .order_by(EvaluationDatasetItem.item_index.asc())
-                .offset(offset)
-                .limit(limit)
-            )
-            return list(result.scalars().all())
-
-    async def count_dataset_items(self, dataset_id: str) -> int:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(func.count(EvaluationDatasetItem.id)).where(EvaluationDatasetItem.dataset_id == dataset_id)
-            )
-            return int(result.scalar() or 0)
-
-    async def list_all_dataset_items(self, dataset_id: str) -> list[EvaluationDatasetItem]:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(EvaluationDatasetItem)
-                .where(EvaluationDatasetItem.dataset_id == dataset_id)
-                .order_by(EvaluationDatasetItem.item_index.asc())
-            )
-            return list(result.scalars().all())
-
-    async def delete_dataset(self, dataset_id: str) -> None:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(EvaluationDataset).where(EvaluationDataset.dataset_id == dataset_id))
+            await session.execute(delete(EvaluationResultDetail).where(EvaluationResultDetail.task_id == task_id))
+            result = await session.execute(select(EvaluationResult).where(EvaluationResult.task_id == task_id))
             record = result.scalar_one_or_none()
             if record is not None:
                 await session.delete(record)
 
-    async def create_run(self, data: dict[str, Any]) -> EvaluationRun:
-        run = EvaluationRun(**data)
-        async with pg_manager.get_async_session_context() as session:
-            session.add(run)
-        return run
-
-    async def get_run(self, run_id: str) -> EvaluationRun | None:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(EvaluationRun).where(EvaluationRun.run_id == run_id))
-            return result.scalar_one_or_none()
-
-    async def list_runs(self, kb_id: str) -> list[EvaluationRun]:
+    async def upsert_result_detail(
+        self, task_id: str, query_index: int, data: dict[str, Any]
+    ) -> EvaluationResultDetail:
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(
-                select(EvaluationRun).where(EvaluationRun.kb_id == kb_id).order_by(EvaluationRun.started_at.desc())
-            )
-            return list(result.scalars().all())
-
-    async def update_run(self, run_id: str, data: dict[str, Any]) -> EvaluationRun | None:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(EvaluationRun).where(EvaluationRun.run_id == run_id))
-            record = result.scalar_one_or_none()
-            if record is None:
-                return None
-            for key, value in data.items():
-                setattr(record, key, value)
-            return record
-
-    async def delete_run(self, run_id: str) -> None:
-        async with pg_manager.get_async_session_context() as session:
-            await session.execute(delete(EvaluationRunItem).where(EvaluationRunItem.run_id == run_id))
-            result = await session.execute(select(EvaluationRun).where(EvaluationRun.run_id == run_id))
-            record = result.scalar_one_or_none()
-            if record is not None:
-                await session.delete(record)
-
-    async def upsert_run_item(self, run_id: str, item_index: int, data: dict[str, Any]) -> EvaluationRunItem:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(EvaluationRunItem).where(
-                    (EvaluationRunItem.run_id == run_id) & (EvaluationRunItem.item_index == item_index)
+                select(EvaluationResultDetail).where(
+                    (EvaluationResultDetail.task_id == task_id) & (EvaluationResultDetail.query_index == query_index)
                 )
             )
             record = result.scalar_one_or_none()
             if record is None:
-                record = EvaluationRunItem(run_id=run_id, item_index=item_index, **data)
+                record = EvaluationResultDetail(task_id=task_id, query_index=query_index, **data)
                 session.add(record)
                 return record
             for key, value in data.items():
                 setattr(record, key, value)
             return record
 
-    async def list_run_items(self, run_id: str, offset: int = 0, limit: int = 100) -> list[EvaluationRunItem]:
+    async def list_result_details(self, task_id: str) -> list[EvaluationResultDetail]:
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(
-                select(EvaluationRunItem)
-                .where(EvaluationRunItem.run_id == run_id)
-                .order_by(EvaluationRunItem.item_index.asc())
-                .offset(offset)
-                .limit(limit)
+                select(EvaluationResultDetail)
+                .where(EvaluationResultDetail.task_id == task_id)
+                .order_by(EvaluationResultDetail.query_index.asc())
             )
             return list(result.scalars().all())
 
-    async def count_run_items(self, run_id: str) -> int:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(func.count(EvaluationRunItem.id)).where(EvaluationRunItem.run_id == run_id)
-            )
-            return int(result.scalar() or 0)
-
     async def delete_all(self) -> None:
         async with pg_manager.get_async_session_context() as session:
-            await session.execute(delete(EvaluationRunItem))
-            await session.execute(delete(EvaluationRun))
-            await session.execute(delete(EvaluationDatasetItem))
-            await session.execute(delete(EvaluationDataset))
+            await session.execute(delete(EvaluationResultDetail))
+            await session.execute(delete(EvaluationResult))
+            await session.execute(delete(EvaluationBenchmark))

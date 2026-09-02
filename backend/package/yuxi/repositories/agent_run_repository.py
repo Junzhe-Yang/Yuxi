@@ -23,29 +23,9 @@ class AgentRunRepository:
         result = await self.db.execute(select(AgentRun).where(AgentRun.request_id == request_id))
         return result.scalar_one_or_none()
 
-    async def get_resume_run(self, parent_run_id: str, resume_request_id: str) -> AgentRun | None:
+    async def get_run_for_user(self, run_id: str, user_id: str) -> AgentRun | None:
         result = await self.db.execute(
-            select(AgentRun).where(
-                AgentRun.parent_run_id == parent_run_id,
-                AgentRun.resume_request_id == resume_request_id,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def get_run_for_user(self, run_id: str, uid: str) -> AgentRun | None:
-        result = await self.db.execute(select(AgentRun).where(and_(AgentRun.id == run_id, AgentRun.uid == str(uid))))
-        return result.scalar_one_or_none()
-
-    async def get_latest_subagent_run_by_thread_for_user(self, thread_id: str, uid: str) -> AgentRun | None:
-        result = await self.db.execute(
-            select(AgentRun)
-            .where(
-                AgentRun.thread_id == thread_id,
-                AgentRun.uid == str(uid),
-                AgentRun.run_type == "subagent",
-            )
-            .order_by(AgentRun.created_at.desc())
-            .limit(1)
+            select(AgentRun).where(and_(AgentRun.id == run_id, AgentRun.user_id == str(user_id)))
         )
         return result.scalar_one_or_none()
 
@@ -55,41 +35,20 @@ class AgentRunRepository:
         run_id: str,
         thread_id: str,
         agent_id: str,
-        uid: str,
+        user_id: str,
         request_id: str,
         input_payload: dict,
-        conversation_id: int | None = None,
-        parent_run_id: str | None = None,
-        parent_agent_run_id: str | None = None,
-        run_type: str = "chat",
-        resume_request_id: str | None = None,
-        checkpoint_thread_id: str | None = None,
     ) -> AgentRun:
         run = AgentRun(
             id=run_id,
             thread_id=thread_id,
             agent_id=agent_id,
-            uid=str(uid),
+            user_id=str(user_id),
             request_id=request_id,
-            conversation_id=conversation_id,
-            parent_run_id=parent_run_id,
-            parent_agent_run_id=parent_agent_run_id,
-            run_type=run_type,
-            resume_request_id=resume_request_id,
-            checkpoint_thread_id=checkpoint_thread_id or thread_id,
             input_payload=input_payload or {},
             status="pending",
         )
         self.db.add(run)
-        await self.db.flush()
-        return run
-
-    async def set_input_message(self, run_id: str, message_id: int) -> AgentRun | None:
-        run = await self.get_run(run_id)
-        if not run:
-            return None
-        run.input_message_id = message_id
-        run.updated_at = utc_now_naive()
         await self.db.flush()
         return run
 

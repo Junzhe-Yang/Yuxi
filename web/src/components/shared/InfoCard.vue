@@ -1,106 +1,69 @@
 <template>
-  <div
-    class="info-card"
-    :class="{ 'info-card-disabled': disabled, 'info-card-mini': variant === 'mini' }"
-    @click="$emit('click')"
-  >
-    <template v-if="variant === 'mini'">
-      <div class="info-card-mini-row">
-        <div class="info-card-icon">
-          <slot name="icon">
-            <component :is="defaultIcon" v-if="defaultIcon" :size="20" />
-          </slot>
-        </div>
-        <div class="info-card-info">
-          <span class="info-card-name" :title="title">{{ title }}</span>
-          <span v-if="description" class="info-card-mini-desc" :title="description">
-            {{ description }}
-          </span>
-        </div>
-        <div v-if="$slots.action || actionLabel" class="info-card-mini-action">
-          <slot name="action">
-            <button
-              type="button"
-              class="card-action-btn"
-              :class="`card-action-btn--${actionVariant || 'primary'}`"
-              @click.stop="$emit('actionClick')"
-            >
-              {{ actionLabel }}
-            </button>
-          </slot>
-        </div>
-      </div>
-    </template>
-
-    <template v-else>
-      <div class="info-card-header">
-        <div class="info-card-icon">
-          <slot name="icon">
-            <component :is="defaultIcon" v-if="defaultIcon" :size="20" />
-          </slot>
-        </div>
-        <div class="info-card-info">
-          <span class="info-card-name" :title="title">{{ title }}</span>
-          <span v-if="subtitle" class="info-card-subtitle" :title="subtitle">{{ subtitle }}</span>
-        </div>
-        <div class="info-card-status">
-          <slot name="status" />
-          <template v-if="!$slots.status">
-            <button
-              v-if="actionLabel"
-              type="button"
-              class="card-action-btn"
-              :class="`card-action-btn--${actionVariant || 'primary'}`"
-              @click.stop="$emit('actionClick')"
-            >
-              {{ actionLabel }}
-            </button>
-            <template v-else-if="status">
-              <span
-                v-if="status.label"
-                class="card-status-tag"
-                :class="`card-status-tag--${status.level || 'info'}`"
-                >{{ status.label }}</span
-              >
-              <span class="card-status-dot" :class="`card-status-dot--${statusDotColor}`"></span>
-            </template>
-          </template>
-        </div>
-      </div>
-
-      <div v-if="$slots.info" class="info-card-body">
-        <slot name="info" />
-      </div>
-      <div v-else-if="description" class="info-card-desc" :title="description">
-        {{ description }}
-      </div>
-      <div v-else-if="info && info.length > 0" class="info-card-info-rows">
-        <div v-for="(row, idx) in info" :key="idx" class="info-row">
-          <span class="info-label">{{ row.label }}</span>
-          <span class="info-value">{{ row.value }}</span>
-        </div>
-      </div>
-
-      <div
-        v-if="$slots.tags || (normalizedTags && normalizedTags.length > 0)"
-        class="info-card-tags"
-      >
-        <slot name="tags">
-          <span
-            v-for="(tag, idx) in normalizedTags"
-            :key="idx"
-            class="card-tag"
-            :class="tag.color ? `tag-${tag.color}` : ''"
-            :style="tag.bgColor ? { backgroundColor: tag.bgColor } : {}"
-            >{{ tag.name }}</span
-          >
+  <div class="info-card" :class="{ 'info-card-disabled': disabled }" @click="$emit('click')">
+    <div class="info-card-header">
+      <div class="info-card-icon">
+        <slot name="icon">
+          <component :is="defaultIcon" v-if="defaultIcon" :size="20" />
         </slot>
       </div>
-
-      <div v-if="$slots.footer" class="info-card-footer">
-        <slot name="footer" />
+      <div class="info-card-info">
+        <span class="info-card-name" :title="title">{{ title }}</span>
+        <span v-if="subtitle" class="info-card-subtitle" :title="subtitle">{{ subtitle }}</span>
       </div>
-    </template>
+      <div class="info-card-status">
+        <slot name="status" />
+        <template v-if="!$slots.status">
+          <button
+            v-if="actionLabel"
+            type="button"
+            class="card-action-btn"
+            :class="`card-action-btn--${actionVariant || 'primary'}`"
+            @click.stop="$emit('actionClick')"
+          >
+            {{ actionLabel }}
+          </button>
+          <template v-else-if="status">
+            <span
+              v-if="status.label"
+              class="card-status-tag"
+              :class="`card-status-tag--${status.level || 'info'}`"
+              >{{ status.label }}</span
+            >
+            <span class="card-status-dot" :class="`card-status-dot--${statusDotColor}`"></span>
+          </template>
+        </template>
+      </div>
+    </div>
+
+    <div v-if="$slots.info" class="info-card-body">
+      <slot name="info" />
+    </div>
+    <div v-else-if="description" class="info-card-desc" :title="description">
+      {{ description }}
+    </div>
+    <div v-else-if="info && info.length > 0" class="info-card-info-rows">
+      <div v-for="(row, idx) in info" :key="idx" class="info-row">
+        <span class="info-label">{{ row.label }}</span>
+        <span class="info-value">{{ row.value }}</span>
+      </div>
+    </div>
+
+    <div v-if="$slots.tags || (normalizedTags && normalizedTags.length > 0)" class="info-card-tags">
+      <slot name="tags">
+        <span
+          v-for="(tag, idx) in normalizedTags"
+          :key="idx"
+          class="card-tag"
+          :class="tag.color ? `tag-${tag.color}` : ''"
+          :style="tag.bgColor ? { backgroundColor: tag.bgColor } : {}"
+          >{{ tag.name }}</span
+        >
+      </slot>
+    </div>
+
+    <div v-if="$slots.footer" class="info-card-footer">
+      <slot name="footer" />
+    </div>
   </div>
 </template>
 
@@ -118,8 +81,7 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   status: { type: Object, default: null },
   actionLabel: { type: String, default: '' },
-  actionVariant: { type: String, default: 'primary' },
-  variant: { type: String, default: 'default' }
+  actionVariant: { type: String, default: 'primary' }
 })
 
 const statusDotColor = computed(() => {
@@ -280,34 +242,6 @@ const normalizedTags = computed(() => {
     padding: 10px 16px;
     border-top: 1px solid var(--gray-100);
     background: var(--gray-10);
-  }
-
-  &-mini {
-    padding: 16px 14px;
-    gap: 0;
-  }
-
-  &-mini-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }
-
-  &-mini-desc {
-    margin-top: 2px;
-    color: var(--gray-500);
-    font-size: 13px;
-    line-height: 18px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &-mini-action {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
   }
 }
 

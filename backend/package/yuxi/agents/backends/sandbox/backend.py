@@ -11,115 +11,27 @@ from deepagents.backends.protocol import (
     FileDownloadResponse,
     FileInfo,
     FileUploadResponse,
-    GlobResult,
     GrepMatch,
-    GrepResult,
-    LsResult,
-    ReadResult,
     WriteResult,
 )
 from deepagents.backends.sandbox import BaseSandbox
 
 from yuxi import config as conf
-from yuxi.agents.skills.service import sync_thread_readable_skills
+from yuxi.services.skill_service import sync_thread_visible_skills
 from yuxi.utils.logging_config import logger
-from yuxi.utils.paths import (
-    OUTPUTS_DIR_NAME,
-    UPLOADS_DIR_NAME,
-    VIRTUAL_PATH_PREFIX,
-    VIRTUAL_SKILLS_PATH,
-    WORKSPACE_DIR_NAME,
-)
 
 from .provider import get_sandbox_provider, sandbox_id_for_thread
-
-_USER_DATA_ROOT = "/" + VIRTUAL_PATH_PREFIX.strip("/")
-_WORKSPACE_ROOT = f"{_USER_DATA_ROOT}/{WORKSPACE_DIR_NAME}"
-_UPLOADS_ROOT = f"{_USER_DATA_ROOT}/{UPLOADS_DIR_NAME}"
-_OUTPUTS_ROOT = f"{_USER_DATA_ROOT}/{OUTPUTS_DIR_NAME}"
-_SKILLS_ROOT = "/" + VIRTUAL_SKILLS_PATH.strip("/")
-_READABLE_ROOTS = (_USER_DATA_ROOT, _SKILLS_ROOT)
-_WRITABLE_ROOTS = (_WORKSPACE_ROOT, _OUTPUTS_ROOT)
 
 
 def _normalize_path(path: str) -> str:
     raw = str(path or "").strip()
     if not raw:
         raise ValueError("path is required")
-    if not raw.startswith("/"):
-        raise ValueError("path must start with /")
-    pure = PurePosixPath(raw)
+    normalized = "/" + raw.lstrip("/")
+    pure = PurePosixPath(normalized)
     if ".." in pure.parts:
         raise ValueError("path traversal is not allowed")
     return str(pure)
-
-
-def _is_same_or_child(path: str, root: str) -> bool:
-    root = root.rstrip("/") or "/"
-    if root == "/":
-        return path == "/" or path.startswith("/")
-    return path == root or path.startswith(f"{root}/")
-
-
-def _path_overlaps_root(path: str, root: str) -> bool:
-    return _is_same_or_child(path, root) or _is_same_or_child(root, path)
-
-
-def _can_read_path(path: str) -> bool:
-    return any(_is_same_or_child(path, root) for root in _READABLE_ROOTS)
-
-
-def _can_list_path(path: str) -> bool:
-    return any(_path_overlaps_root(path, root) for root in _READABLE_ROOTS)
-
-
-def _can_write_path(path: str) -> bool:
-    return any(_is_same_or_child(path, root) for root in _WRITABLE_ROOTS)
-
-
-def _readable_search_paths(path: str) -> list[str]:
-    if _can_read_path(path):
-        return [path]
-    return [root for root in _READABLE_ROOTS if _is_same_or_child(root, path)]
-
-
-def _glob_for_search_root(pattern: str, root: str) -> str:
-    bare_pattern = str(pattern or "*").lstrip("/")
-    bare_root = root.strip("/")
-    if bare_pattern == bare_root:
-        return "*"
-    root_prefix = f"{bare_root}/"
-    if bare_pattern.startswith(root_prefix):
-        return bare_pattern[len(root_prefix) :] or "*"
-    return pattern
-
-
-def _filter_readable_infos(infos: list[FileInfo]) -> list[FileInfo]:
-    result: list[FileInfo] = []
-    for info in infos:
-        try:
-            path = _normalize_path(info.get("path", ""))
-        except ValueError:
-            continue
-        if _can_list_path(path):
-            result.append(info)
-    return result
-
-
-def _filter_readable_matches(matches: list[GrepMatch]) -> list[GrepMatch]:
-    result: list[GrepMatch] = []
-    for match in matches:
-        try:
-            path = _normalize_path(match.get("path", ""))
-        except ValueError:
-            continue
-        if _can_read_path(path):
-            result.append(match)
-    return result
-
-
-def _permission_error(operation: str, path: str) -> str:
-    return f"permission denied for {operation} on '{path}'"
 
 
 def _describe_read_error(file_path: str, exc: Exception) -> str:
@@ -137,19 +49,6 @@ def _describe_read_error(file_path: str, exc: Exception) -> str:
     return f"Error: Failed to read '{file_path}'"
 
 
-def _is_missing_file_error(exc: Exception) -> bool:
-    if isinstance(exc, FileNotFoundError):
-        return True
-
-    status_code = getattr(exc, "status_code", None)
-    response = getattr(exc, "response", None)
-    if status_code == 404 or getattr(response, "status_code", None) == 404:
-        return True
-
-    detail = str(exc).lower()
-    return "status_code: 404" in detail or "file does not exist" in detail
-
-
 def _looks_like_binary(content: bytes) -> bool:
     if not content:
         return False
@@ -163,31 +62,17 @@ def _looks_like_binary(content: bytes) -> bool:
 
 
 class ProvisionerSandboxBackend(BaseSandbox):
-    def __init__(
-        self,
-        thread_id: str,
-        *,
-        uid: str,
-        readable_skills: list[str] | None = None,
-        file_thread_id: str | None = None,
-        skills_thread_id: str | None = None,
-    ):
+    def __init__(self, thread_id: str, *, user_id: str, visible_skills: list[str] | None = None):
         self._thread_id = str(thread_id or "").strip()
         if not self._thread_id:
             raise ValueError("thread_id is required for ProvisionerSandboxBackend")
-        self._file_thread_id = str(file_thread_id or self._thread_id).strip()
-        if not self._file_thread_id:
-            raise ValueError("file_thread_id is required for ProvisionerSandboxBackend")
-        self._skills_thread_id = str(skills_thread_id or self._thread_id).strip()
-        if not self._skills_thread_id:
-            raise ValueError("skills_thread_id is required for ProvisionerSandboxBackend")
-        self._uid = str(uid or "").strip()
-        if not self._uid:
-            raise ValueError("uid is required for ProvisionerSandboxBackend")
+        self._user_id = str(user_id or "").strip()
+        if not self._user_id:
+            raise ValueError("user_id is required for ProvisionerSandboxBackend")
 
-        self._readable_skills = list(readable_skills or [])
+        self._visible_skills = list(visible_skills or [])
         self._provider = get_sandbox_provider()
-        self._id = sandbox_id_for_thread(self._file_thread_id, self._skills_thread_id, uid=self._uid)
+        self._id = sandbox_id_for_thread(self._thread_id)
         self._client: Any | None = None
         self._client_url: str | None = None
         self._command_timeout_seconds = int(getattr(conf, "sandbox_exec_timeout_seconds", 180))
@@ -208,14 +93,8 @@ class ProvisionerSandboxBackend(BaseSandbox):
         return AgentSandboxClient(base_url=sandbox_url, timeout=self._command_timeout_seconds)
 
     def _get_client(self) -> Any:
-        sync_thread_readable_skills(self._skills_thread_id, self._readable_skills)
-        connection = self._provider.get(
-            self._thread_id,
-            uid=self._uid,
-            create_if_missing=True,
-            file_thread_id=self._file_thread_id,
-            skills_thread_id=self._skills_thread_id,
-        )
+        sync_thread_visible_skills(self._thread_id, self._visible_skills)
+        connection = self._provider.get(self._thread_id, user_id=self._user_id, create_if_missing=True)
         if connection is None:
             raise RuntimeError(f"sandbox is unavailable for thread {self._thread_id}")
 
@@ -228,12 +107,12 @@ class ProvisionerSandboxBackend(BaseSandbox):
     def _read_binary(self, path: str, offset: int = 0, limit: int | None = None) -> bytes:
         """Read file content from the sandbox file API and normalize it to bytes.
 
-        The underlying API returns plain text by default and may include an
-        explicit `encoding="base64"` marker for binary payloads. This helper is
-        the single normalization point used by read(), edit(), and download_files().
+        The underlying API may return base64 text, raw bytes, or plain strings.
+        This helper is the single normalization point used by read(), edit(), and
+        download_files() so all read paths share the same transport semantics.
         """
-        start_line = max(0, int(offset))
-        end_line = start_line + int(limit) if limit is not None else None
+        start_line = max(0, int(offset)) if offset else None
+        end_line = (start_line + int(limit)) if limit and start_line is not None else None
 
         result = self._get_client().file.read_file(
             file=path,
@@ -249,37 +128,45 @@ class ProvisionerSandboxBackend(BaseSandbox):
         if not isinstance(content, str):
             return str(content).encode("utf-8")
 
-        encoding = getattr(result.data, "encoding", None)
-        if isinstance(encoding, str) and encoding.lower() == "base64":
+        try:
             return base64.b64decode(content, validate=True)
-        return content.encode("utf-8")
+        except Exception:  # noqa: BLE001
+            return content.encode("utf-8")
 
     def read(
         self,
         file_path: str,
         offset: int = 0,
         limit: int = 2000,
-    ) -> ReadResult:
-        """Read allowed file content via the sandbox file API."""
+    ) -> str:
+        """Read file content via the sandbox file API and render a text view.
+
+        This stays on top of _read_binary() so the backend has one consistent
+        read path for base64 transport, raw bytes, and text-like responses.
+        """
         try:
             normalized_path = _normalize_path(file_path)
         except Exception as exc:  # noqa: BLE001
-            return ReadResult(error=f"Invalid path '{file_path}': {exc}")
-        if not _can_read_path(normalized_path):
-            return ReadResult(error=_permission_error("read", normalized_path))
+            return _describe_read_error(file_path, exc)
+        start = max(0, int(offset))
 
         try:
             content = self._read_binary(normalized_path, offset=offset, limit=limit)
-            if _looks_like_binary(content):
-                content = self._read_binary(normalized_path)
         except Exception as exc:  # noqa: BLE001
-            error = _describe_read_error(file_path, exc)
-            return ReadResult(error=error.removeprefix("Error: "))
+            return _describe_read_error(file_path, exc)
+
+        if not content:
+            return "System reminder: File exists but has empty contents"
 
         if _looks_like_binary(content):
-            return ReadResult(file_data={"content": base64.b64encode(content).decode("ascii"), "encoding": "base64"})
+            return f"Error: File '{file_path}' is binary and cannot be rendered as text"
 
-        return ReadResult(file_data={"content": content.decode("utf-8"), "encoding": "utf-8"})
+        text = content.decode("utf-8")
+        if not text:
+            return ""
+
+        lines = text.splitlines()
+        return "\n".join(f"{start + idx + 1:6d}\t{line}" for idx, line in enumerate(lines))
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         """Execute a shell command in the sandbox.
@@ -311,19 +198,13 @@ class ProvisionerSandboxBackend(BaseSandbox):
             logger.error(f"Sandbox execute failed for thread {self._thread_id}: {exc}")
             return ExecuteResponse(output=f"Error: {exc}", exit_code=1, truncated=False)
 
-    def ls(self, path: str) -> LsResult:
-        """List direct children of an allowed sandbox path with lightweight metadata."""
-        try:
-            normalized_path = _normalize_path(path)
-        except Exception as exc:  # noqa: BLE001
-            return LsResult(error=f"Invalid path '{path}': {exc}")
-        if not _can_list_path(normalized_path):
-            return LsResult(error=_permission_error("read", normalized_path))
-
+    def ls_info(self, path: str) -> list[FileInfo]:
+        """List direct children of a sandbox path with lightweight metadata."""
+        normalized_path = _normalize_path(path)
         try:
             result = self._get_client().file.list_path(path=normalized_path, recursive=False, include_size=True)
-        except Exception as exc:  # noqa: BLE001
-            return LsResult(error=str(exc) or f"Failed to list '{path}'")
+        except Exception:  # noqa: BLE001
+            return []
 
         entries = result.data.files or []
         infos: list[FileInfo] = []
@@ -344,7 +225,7 @@ class ProvisionerSandboxBackend(BaseSandbox):
                 elif isinstance(modified_time, (int, float)):
                     info["modified_at"] = datetime.fromtimestamp(modified_time).isoformat()
             infos.append(info)
-        return LsResult(entries=_filter_readable_infos(infos))
+        return infos
 
     def write(self, file_path: str, content: str) -> WriteResult:
         """Write a new text file.
@@ -352,12 +233,7 @@ class ProvisionerSandboxBackend(BaseSandbox):
         This method is intentionally text-only. Binary payloads should go through
         upload_files(), which uses base64 encoding for the sandbox file API.
         """
-        try:
-            normalized_path = _normalize_path(file_path)
-        except Exception as exc:  # noqa: BLE001
-            return WriteResult(error=f"Error: Invalid path '{file_path}': {exc}")
-        if not _can_write_path(normalized_path):
-            return WriteResult(error=f"Error: {_permission_error('write', normalized_path)}")
+        normalized_path = _normalize_path(file_path)
         if not isinstance(content, str):
             return WriteResult(error="Error: write() only supports text content; use upload_files() for binary data")
         try:
@@ -374,7 +250,7 @@ class ProvisionerSandboxBackend(BaseSandbox):
         except Exception as exc:  # noqa: BLE001
             return WriteResult(error=str(exc) or f"Failed to write file '{file_path}'")
 
-        return WriteResult(path=normalized_path)
+        return WriteResult(path=normalized_path, files_update=None)
 
     def edit(
         self,
@@ -388,12 +264,7 @@ class ProvisionerSandboxBackend(BaseSandbox):
         This method operates on UTF-8-decoded text content only. Binary files
         are not supported here and should be handled via download/upload flows.
         """
-        try:
-            normalized_path = _normalize_path(file_path)
-        except Exception as exc:  # noqa: BLE001
-            return EditResult(error=f"Error: Invalid path '{file_path}': {exc}")
-        if not _can_write_path(normalized_path):
-            return EditResult(error=f"Error: {_permission_error('write', normalized_path)}")
+        normalized_path = _normalize_path(file_path)
 
         # Check if old_string exists
         try:
@@ -427,59 +298,44 @@ class ProvisionerSandboxBackend(BaseSandbox):
         except Exception as exc:  # noqa: BLE001
             return EditResult(error=f"Error editing file: {exc}")
 
-        return EditResult(path=normalized_path, occurrences=count if replace_all else 1)
+        return EditResult(path=normalized_path, files_update=None, occurrences=count if replace_all else 1)
 
-    def grep(
+    def grep_raw(
         self,
         pattern: str,
         path: str | None = None,
         glob: str | None = None,
-    ) -> GrepResult:
-        """Search allowed sandbox paths for literal text."""
+    ) -> list[GrepMatch] | str:
+        """Search file contents under a path and return raw line matches.
+
+        The sandbox file API is used directly with fixed-string matching and an
+        optional include glob.
+        """
+        search_path = _normalize_path(path or "/")
+
         try:
-            normalized_path = _normalize_path(path or "/")
+            return super().grep_raw(pattern=pattern, path=search_path, glob=glob)
+
         except Exception as exc:  # noqa: BLE001
-            return GrepResult(error=f"Invalid path '{path or '/'}': {exc}")
+            return str(exc)
 
-        search_paths = _readable_search_paths(normalized_path)
-        if not search_paths:
-            return GrepResult(error=_permission_error("read", normalized_path))
+    def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:
+        """Return files matching a glob pattern with optional metadata."""
+        normalized_path = _normalize_path(path)
 
-        matches: list[GrepMatch] = []
-        for search_path in search_paths:
-            result = super().grep(pattern=pattern, path=search_path, glob=glob)
-            if result.error:
-                return result
-            matches.extend(result.matches or [])
-        return GrepResult(matches=_filter_readable_matches(matches))
-
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:
-        """Return files matching a glob pattern under allowed sandbox paths."""
         try:
-            normalized_path = _normalize_path(path)
-        except Exception as exc:  # noqa: BLE001
-            return GlobResult(error=f"Invalid path '{path}': {exc}")
-        if ".." in PurePosixPath(str(pattern or "")).parts:
-            return GlobResult(error="Invalid glob pattern: path traversal is not allowed")
-
-        search_paths = _readable_search_paths(normalized_path)
-        if not search_paths:
-            return GlobResult(error=_permission_error("read", normalized_path))
+            # return super().glob_info(pattern=pattern, path=path)
+            result = self._get_client().file.find_files(
+                path=normalized_path,
+                glob=pattern,
+            )
+        except Exception:  # noqa: BLE001
+            return []
 
         infos: list[FileInfo] = []
-        for search_path in search_paths:
-            try:
-                result = self._get_client().file.find_files(
-                    path=search_path,
-                    glob=_glob_for_search_root(pattern, search_path),
-                )
-            except Exception as exc:  # noqa: BLE001
-                return GlobResult(error=str(exc) or f"Failed to glob '{path}'")
-            for file_path in result.data.files or []:
-                infos.append({"path": file_path})
-        infos = _filter_readable_infos(infos)
-        infos.sort(key=lambda item: item.get("path", ""))
-        return GlobResult(matches=infos)
+        for file_path in result.data.files or []:
+            infos.append({"path": file_path})
+        return infos
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         """Upload binary or text file payloads via the sandbox file API.
@@ -491,9 +347,6 @@ class ProvisionerSandboxBackend(BaseSandbox):
         for path, content in files:
             try:
                 normalized_path = _normalize_path(path)
-                if not _can_write_path(normalized_path):
-                    responses.append(FileUploadResponse(path=normalized_path, error="permission_denied"))
-                    continue
                 result = self._get_client().file.write_file(
                     file=normalized_path,
                     content=base64.b64encode(content).decode("ascii"),
@@ -520,17 +373,13 @@ class ProvisionerSandboxBackend(BaseSandbox):
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
         """Download file payloads as raw bytes from the sandbox file API.
 
-        _read_binary() normalizes the sandbox file API response to bytes.
+        The underlying API is read with base64 encoding and decoded back into
+        bytes by _read_binary().
         """
         responses: list[FileDownloadResponse] = []
         for path in paths:
             try:
                 normalized_path = _normalize_path(path)
-                if not _can_read_path(normalized_path):
-                    responses.append(
-                        FileDownloadResponse(path=normalized_path, content=None, error="permission_denied")
-                    )
-                    continue
                 content = self._read_binary(normalized_path)
                 responses.append(FileDownloadResponse(path=normalized_path, content=content, error=None))
             except PermissionError:
@@ -547,9 +396,6 @@ class ProvisionerSandboxBackend(BaseSandbox):
                 responses.append(FileDownloadResponse(path=normalized_path, content=None, error="invalid_path"))
             except Exception as exc:  # noqa: BLE001
                 normalized_path = str(path)
-                if _is_missing_file_error(exc):
-                    responses.append(FileDownloadResponse(path=normalized_path, content=None, error="file_not_found"))
-                    continue
                 logger.warning(f"Download from sandbox failed for {normalized_path}: {exc}")
                 responses.append(FileDownloadResponse(path=normalized_path, content=None, error=f"read_failed: {exc}"))
         return responses

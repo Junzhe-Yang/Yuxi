@@ -42,19 +42,19 @@ export default defineConfig({
         text: '智能体开发',
         items: [
           { text: '智能体配置', link: '/agents/agents-config' },
+          { text: 'Langfuse 集成', link: '/agents/langfuse-integration' },
           { text: '工具系统', link: '/agents/tools-system' },
           { text: '中间件', link: '/agents/middleware' },
           { text: '沙盒架构与设计', link: '/agents/sandbox-architecture' },
           { text: 'MCP 集成', link: '/agents/mcp-integration' },
           { text: 'Skills 管理', link: '/agents/skills-management' },
-          { text: '子智能体', link: '/agents/subagents-management' }
+          { text: 'SubAgents 管理', link: '/agents/subagents-management' }
         ]
       },
       {
         text: '高级配置',
         items: [
           { text: '配置系统详解', link: '/advanced/configuration' },
-          { text: 'Langfuse 集成', link: '/advanced/langfuse-integration' },
           { text: '文档解析', link: '/advanced/document-processing' },
           { text: '品牌自定义', link: '/advanced/branding' },
           { text: '其他配置', link: '/advanced/misc' },

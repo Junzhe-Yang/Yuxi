@@ -39,7 +39,7 @@ const parsedContent = computed(() => {
 
 const imageUrl = computed(() => {
   const content = parsedContent.value
-  // 图片类工具返回 URL 字符串时直接渲染图片
+  // text_to_img_qwen_image 返回 URL 字符串
   if (content && typeof content === 'string' && content.startsWith('http')) {
     return content
   }

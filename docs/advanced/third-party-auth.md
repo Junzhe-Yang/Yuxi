@@ -69,7 +69,7 @@ Yuxi 支持以OIDC接入第三方登录认证，方便企业用户集成现有�
 # OIDC_NAME_CLAIM=name
 
 # 是否使用原始用户名（不带 oidc: 前缀），允许映射到 Yuxi 已有的本地账号 (true/false，默认: false)
-# 开启后，OIDC 返回的 username 会直接作为业务登录标识 uid 登录，需要管理员提前创建好用户账号
+# 开启后，OIDC 返回的 username 会直接作为 user_id 登录，需要管理员提前创建好用户账号
 # OIDC_USE_RAW_USERNAME=false
 
 # 是否从OIDC userinfo 中获取部门信息并自动创建关联部门 (true/false，默认: false)
@@ -78,8 +78,8 @@ Yuxi 支持以OIDC接入第三方登录认证，方便企业用户集成现有�
 # 部门名称字段映射 (默认: department)
 # OIDC_DEPARTMENT_CLAIM=department
 
-# OIDC 登录时是否强制提示用户重新登录 (添加 prompt=login 参数，true/false，默认: true)
-# OIDC_FORCE_PROMPT_LOGIN=true
+# OIDC 登录时是否强制提示用户重新登录 (添加 prompt=login 参数，true/false，默认: false)
+# OIDC_FORCE_PROMPT_LOGIN=false
 
 ```
 ### 3. 重启Yuxi服务使配置生效
@@ -93,7 +93,7 @@ docker restart api-dev web-dev
 当你需要将 Yuxi 系统中已有的本地账号与 OIDC SSO 绑定，可以开启此选项。
 
 **绑定原理**（无需修改数据库）：  
-系统会创建一个标记为删除的占位用户 `oidc:{sub}:{target_user_id}` 来记录 OIDC sub 与 Yuxi 用户的绑定关系，确保只有绑定过的 OIDC 身份才能登录对应的账号，**防止账号冒用**。其中 `target_user_id` 是数据库中的数值 `users.id`；用户登录标识仍使用字符串 `uid`。
+系统会创建一个标记为删除的占位用户 `oidc:{sub}:{target_user_id}` 来记录 OIDC sub 与 Yuxi 用户的绑定关系，确保只有绑定过的 OIDC 身份才能登录对应的账号，**防止账号冒用**。
 
 ### 自动获取部门信息（OIDC_FETCH_DEPARTMENT_INFO=true）
 开启后，系统会从 OIDC userinfo 中读取部门名称和描述，自动在 Yuxi 中创建部门并将用户关联到该部门。

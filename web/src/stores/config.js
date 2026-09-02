@@ -1,6 +1,16 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { configApi } from '@/apis/system_api'
+
+export const useCounterStore = defineStore('counter', () => {
+  const count = ref(0)
+  const doubleCount = computed(() => count.value * 2)
+  function increment() {
+    count.value++
+  }
+
+  return { count, doubleCount, increment }
+})
 
 export const useConfigStore = defineStore('config', () => {
   const config = ref({})
@@ -16,6 +26,19 @@ export const useConfigStore = defineStore('config', () => {
     })
   }
 
+  function setConfigValues(items) {
+    // 更新本地配置
+    for (const key in items) {
+      config.value[key] = items[key]
+    }
+
+    // 发送到服务器
+    configApi.updateConfigBatch(items).then((data) => {
+      console.debug('Success:', data)
+      setConfig(data)
+    })
+  }
+
   async function refreshConfig() {
     const data = await configApi.getConfig()
     console.log('config', data)
@@ -23,5 +46,5 @@ export const useConfigStore = defineStore('config', () => {
     return data
   }
 
-  return { config, setConfigValue, refreshConfig }
+  return { config, setConfig, setConfigValue, refreshConfig, setConfigValues }
 })

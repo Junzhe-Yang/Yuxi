@@ -10,13 +10,13 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sqlalchemy_delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from yuxi.storage.postgres.models_business import APIKey, Department, User
+from yuxi.storage.postgres.models_business import APIKey, AgentConfig, Department, User
 from yuxi.repositories.department_repository import DepartmentRepository
 from yuxi.repositories.user_repository import UserRepository
 from server.utils.auth_middleware import get_superadmin_user, get_admin_user, get_db
-from yuxi.utils.auth_utils import AuthUtils
-from yuxi.services.operation_log_service import log_operation
-from yuxi.services.user_identity_service import is_valid_phone_number
+from server.utils.auth_utils import AuthUtils
+from server.utils.common_utils import log_operation
+from server.utils.user_utils import is_valid_phone_number
 
 # 创建路由器
 department = APIRouter(prefix="/departments", tags=["department"])
@@ -33,9 +33,16 @@ class DepartmentCreate(BaseModel):
     name: str
     description: str | None = None
     # 必需的管理员信息
-    admin_uid: str
+    admin_user_id: str
     admin_password: str
     admin_phone: str | None = None
+
+
+class DepartmentCreateWithoutAdmin(BaseModel):
+    """创建部门请求（无管理员，用于兼容）"""
+
+    name: str
+    description: str | None = None
 
 
 class DepartmentUpdate(BaseModel):
@@ -102,22 +109,22 @@ async def create_department(
     if await dept_repo.exists_by_name(department_data.name):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部门名称已存在")
 
-    # 验证管理员 uid 格式
-    admin_uid = department_data.admin_uid
-    if not re.match(r"^[a-zA-Z0-9_]+$", admin_uid):
+    # 验证管理员 user_id 格式
+    admin_user_id = department_data.admin_user_id
+    if not re.match(r"^[a-zA-Z0-9_]+$", admin_user_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户ID只能包含字母、数字和下划线",
         )
 
-    if len(admin_uid) < 3 or len(admin_uid) > 20:
+    if len(admin_user_id) < 3 or len(admin_user_id) > 20:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户ID长度必须在3-20个字符之间",
         )
 
-    # 检查 uid 是否已存在
-    if await user_repo.exists_by_uid(admin_uid):
+    # 检查 user_id 是否已存在
+    if await user_repo.exists_by_user_id(admin_user_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户ID已存在",
@@ -146,8 +153,8 @@ async def create_department(
     hashed_password = AuthUtils.hash_password(department_data.admin_password)
     await user_repo.create(
         {
-            "username": admin_uid,
-            "uid": admin_uid,
+            "username": admin_user_id,
+            "user_id": admin_user_id,
             "phone_number": admin_phone,
             "password_hash": hashed_password,
             "role": "admin",
@@ -157,7 +164,7 @@ async def create_department(
 
     # 记录操作
     await log_operation(
-        db, current_user.id, "创建部门", f"创建部门: {department_data.name}，并创建管理员: {admin_uid}", request
+        db, current_user.id, "创建部门", f"创建部门: {department_data.name}，并创建管理员: {admin_user_id}", request
     )
 
     return {**new_department.to_dict(), "user_count": 1}
@@ -228,8 +235,9 @@ async def delete_department(
 
     if department_users:
         for user in department_users:
-            user.department_id = 1  # 将被删除部门的用户移至默认部门
+            user.department_id = 1  # 将用户迁移到默认部门
 
+    await db.execute(sqlalchemy_delete(AgentConfig).where(AgentConfig.department_id == department_id))
     await db.execute(sqlalchemy_delete(APIKey).where(APIKey.department_id == department_id))
     await db.delete(department)
     await db.commit()

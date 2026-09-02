@@ -56,13 +56,14 @@
         <template #bodyCell="{ column, record, index }">
           <template v-if="column.key === 'rank'">
             <div class="rank-display">
-              <span class="rank-number" :class="{ featured: index < 3 }">{{ index + 1 }}</span>
+              <span v-if="index < 3" class="rank-medal">
+                {{ index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉' }}
+              </span>
+              <span v-else class="rank-number">{{ index + 1 }}</span>
             </div>
           </template>
           <template v-if="column.key === 'agent_id'">
-            <span class="agent-name" :title="resolveAgentName(record.agent_id)">
-              {{ resolveAgentName(record.agent_id) }}
-            </span>
+            <a-tag color="blue">{{ record.agent_id }}</a-tag>
           </template>
           <template v-if="column.key === 'satisfaction_rate'">
             <a-statistic
@@ -127,7 +128,7 @@ const performerColumns = [
     align: 'center'
   },
   {
-    title: '智能体',
+    title: '智能体ID',
     key: 'agent_id',
     width: '30%'
   },
@@ -159,10 +160,6 @@ const totalToolUsage = computed(() => {
 const topPerformers = computed(() => {
   return props.agentStats?.top_performing_agents || []
 })
-
-const agentNames = computed(() => props.agentStats?.agent_names || {})
-
-const resolveAgentName = (agentId) => agentNames.value[agentId] || agentId
 
 // 初始化对话数和工具调用数合并图表
 const initConversationToolChart = () => {
@@ -238,7 +235,7 @@ const initConversationToolChart = () => {
     },
     xAxis: {
       type: 'category',
-      data: topAgentIds.map(resolveAgentName),
+      data: topAgentIds,
       axisLine: {
         lineStyle: {
           color: getCSSVariable('--gray-200')
@@ -378,38 +375,23 @@ defineExpose({
   align-items: center;
   justify-content: center;
 
+  .rank-medal {
+    font-size: 20px;
+  }
+
   .rank-number {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 24px;
     height: 24px;
-    background-color: var(--gray-50);
+    background-color: var(--gray-100);
     border-radius: 50%;
     font-size: 12px;
     font-weight: 600;
     color: var(--gray-600);
-    border: 1px solid var(--gray-150);
+    border: 1px solid var(--gray-200);
   }
-
-  .rank-number.featured {
-    background-color: var(--main-20);
-    border-color: var(--main-100);
-    color: var(--main-color);
-  }
-}
-
-.agent-name {
-  display: inline-block;
-  max-width: 100%;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-  white-space: nowrap;
 }
 
 // AgentStatsComponent 特有的样式

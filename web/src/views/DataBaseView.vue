@@ -1,7 +1,6 @@
 <template>
   <div class="database-container layout-container">
     <PageHeader
-      v-if="!props.embedded"
       title="知识库"
       :active-key="knowledgeActiveView"
       :tabs="knowledgeViewItems"
@@ -25,13 +24,8 @@
         </a-select>
       </template>
       <template #actions>
-        <a-button
-          type="primary"
-          class="lucide-icon-btn"
-          :disabled="!kbTypes.length"
-          @click="state.openNewDatabaseModel = true"
-        >
-          <Plus :size="16" /> 新建知识库
+        <a-button type="primary" @click="state.openNewDatabaseModel = true">
+          <PlusOutlined /> 新建知识库
         </a-button>
       </template>
     </PageShoulder>
@@ -63,7 +57,7 @@
                 <component :is="getKbTypeIcon(typeKey)" class="type-icon" />
                 <span class="type-title">{{ getKbTypeLabel(typeKey) }}</span>
               </div>
-              <div class="card-description">{{ getKbTypeDescription(typeInfo) }}</div>
+              <div class="card-description">{{ typeInfo.description }}</div>
             </div>
           </div>
         </div>
@@ -73,11 +67,11 @@
           <a-input v-model:value="newDatabase.name" placeholder="新建知识库名称" />
         </div>
 
-        <div v-if="selectedKbTypeInfo?.requires_embedding_model" class="form-grid two-columns">
+        <div v-if="newDatabase.kb_type !== 'dify'" class="form-grid two-columns">
           <div class="form-section compact-section">
             <h3 class="section-title">嵌入模型</h3>
             <EmbeddingModelSelector
-              v-model:value="newDatabase.embedding_model_spec"
+              v-model:value="newDatabase.embed_model_name"
               class="full-width"
               placeholder="请选择嵌入模型"
             />
@@ -98,45 +92,52 @@
           </div>
         </div>
 
-        <div v-if="createParamOptions.length" class="form-grid three-columns">
-          <div
-            v-for="field in createParamOptions"
-            :key="field.key"
-            class="form-section compact-section"
-          >
-            <h3 class="section-title">
-              {{ field.label || field.key
-              }}<span v-if="field.required" class="required-mark">*</span>
-            </h3>
-            <a-input-password
-              v-if="field.type === 'password'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :placeholder="field.placeholder"
-            />
-            <a-input-number
-              v-else-if="field.type === 'number'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :min="field.min"
-              :max="field.max"
-              :step="field.step"
-              class="full-width"
-            />
-            <a-switch
-              v-else-if="field.type === 'boolean'"
-              v-model:checked="newDatabase.additional_params[field.key]"
-            />
+        <!-- 仅对 LightRAG 提供语言选择和LLM选择 -->
+        <div v-if="newDatabase.kb_type === 'lightrag'" class="form-grid two-columns">
+          <div class="form-section compact-section">
+            <h3 class="section-title">语言</h3>
             <a-select
-              v-else-if="field.type === 'select'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :options="field.options || []"
+              v-model:value="newDatabase.language"
+              :options="languageOptions"
               class="full-width"
+              :dropdown-match-select-width="false"
             />
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">语言模型 (LLM)</h3>
+            <ModelSelectorComponent
+              :model_spec="llmModelSpec"
+              placeholder="请选择模型"
+              @select-model="handleLLMSelect"
+              class="full-width compact-model-selector"
+            />
+          </div>
+        </div>
+
+        <div v-if="newDatabase.kb_type === 'dify'" class="form-grid three-columns">
+          <div class="form-section compact-section">
+            <h3 class="section-title">Dify API URL</h3>
             <a-input
-              v-else
-              v-model:value="newDatabase.additional_params[field.key]"
-              :placeholder="field.placeholder"
+              v-model:value="newDatabase.dify_api_url"
+              placeholder="例如: https://api.dify.ai/v1"
             />
-            <p v-if="field.description" class="field-hint">{{ field.description }}</p>
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">Dify Token</h3>
+            <a-input-password
+              v-model:value="newDatabase.dify_token"
+              placeholder="请输入 Dify API Token"
+            />
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">Dataset ID</h3>
+            <a-input
+              v-model:value="newDatabase.dify_dataset_id"
+              placeholder="请输入 Dify dataset_id"
+            />
           </div>
         </div>
 
@@ -153,14 +154,28 @@
           />
         </div>
 
+        <!-- 隐私设置（暂时隐藏）
+      <h3 style="margin-top: 20px">隐私设置</h3>
+      <div class="privacy-config">
+        <a-switch
+          v-model:checked="newDatabase.is_private"
+          checked-children="私有"
+          un-checked-children="公开"
+          size="default"
+        />
+        <span style="margin-left: 12px">设置为私有知识库</span>
+        <a-tooltip
+          title="当前未使用此属性。在部分智能体的设计中，可以根据隐私标志来决定启用什么模型和策略。例如，对于私有知识库，可以选择更严格的数据处理和访问控制策略，以保护敏感信息的安全性和隐私性。"
+        >
+          <InfoCircleOutlined style="margin-left: 8px; color: var(--gray-500); cursor: help" />
+        </a-tooltip>
+      </div>
+      -->
+
         <!-- 共享配置 -->
         <div class="form-section compact-section">
           <h3 class="section-title">共享设置</h3>
-          <ShareConfigForm
-            ref="shareConfigFormRef"
-            v-model="shareConfig"
-            :auto-select-user-dept="true"
-          />
+          <ShareConfigForm v-model="shareConfig" :auto-select-user-dept="true" />
         </div>
       </div>
       <template #footer>
@@ -169,7 +184,6 @@
           key="submit"
           type="primary"
           :loading="dbState.creating"
-          :disabled="!selectedKbTypeInfo"
           @click="handleCreateDatabase"
           >创建</a-button
         >
@@ -183,43 +197,34 @@
     </div>
 
     <!-- 空状态显示 -->
-    <ResourceEmptyState
-      v-else-if="!databases || databases.length === 0"
-      title="暂无知识库"
-      description="创建知识库后，可以上传文件并配置检索、图谱和评估能力。"
-      :icon="getKbTypeIcon('milvus')"
-    >
-      <template #actions>
-        <a-button
-          type="primary"
-          size="large"
-          class="lucide-icon-btn"
-          :disabled="!kbTypes.length"
-          @click="state.openNewDatabaseModel = true"
-        >
-          <template #icon>
-            <Plus :size="16" />
-          </template>
-          创建知识库
-        </a-button>
-      </template>
-    </ResourceEmptyState>
+    <div v-else-if="!databases || databases.length === 0" class="empty-state">
+      <h3 class="empty-title">暂无知识库</h3>
+      <p class="empty-description">创建您的第一个知识库，开始管理文档和知识</p>
+      <a-button type="primary" size="large" @click="state.openNewDatabaseModel = true">
+        <template #icon>
+          <PlusOutlined />
+        </template>
+        创建知识库
+      </a-button>
+    </div>
 
     <!-- 数据库列表 -->
     <ExtensionCardGrid v-else>
       <InfoCard
         v-for="database in filteredDatabases"
-        :key="database.kb_id"
+        :key="database.db_id"
         :title="database.name"
         :subtitle="cardSubtitle(database)"
         :description="database.description || '暂无描述'"
         :tags="cardTags(database)"
-        @click="navigateToDatabase(database)"
+        @click="navigateToDatabase(database.db_id)"
       >
         <template #icon>
-          <component :is="getKbTypeIcon(database.kb_type || 'milvus')" :size="20" />
+          <component :is="getKbTypeIcon(database.kb_type || 'lightrag')" :size="20" />
         </template>
-        <template #status />
+        <template #status>
+          <LockOutlined v-if="database.metadata?.is_private" title="私有知识库" />
+        </template>
       </InfoCard>
     </ExtensionCardGrid>
   </div>
@@ -231,20 +236,26 @@ import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
-import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { Plus } from 'lucide-vue-next'
+import { LockOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { typeApi } from '@/apis/knowledge_api'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
-import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
+import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
 import AiTextarea from '@/components/AiTextarea.vue'
-import { getKbTypeLabel, getKbTypeIcon, getKbTypeColor, kbUtils } from '@/utils/kb_utils'
+import {
+  getKbTypeLabel,
+  getKbTypeIcon,
+  getKbTypeColor,
+  parseModelSpec,
+  buildDisplaySpec,
+  buildLlmInfoPayload
+} from '@/utils/kb_utils'
 import { CHUNK_PRESET_OPTIONS, getChunkPresetDescription } from '@/utils/chunk_presets'
 
 const route = useRoute()
@@ -252,19 +263,16 @@ const router = useRouter()
 const configStore = useConfigStore()
 const databaseStore = useDatabaseStore()
 
-const props = defineProps({
-  embedded: { type: Boolean, default: false }
-})
-
 // 使用 store 的状态
 const { databases, state: dbState } = storeToRefs(databaseStore)
 
 const knowledgeActiveView = 'documents'
 const knowledgeViewItems = [
-  { key: 'documents', label: '文档知识库', path: '/extensions?tab=knowledge' }
+  { key: 'documents', label: '文档知识库', path: '/database' },
+  { key: 'graph', label: '知识图谱', path: '/graph' }
 ]
 
-const kbTypes = computed(() => Object.keys(supportedKbTypes.value))
+const kbTypes = ['lightrag', 'milvus', 'dify']
 const searchQuery = ref('')
 const typeFilter = ref(null)
 
@@ -279,7 +287,7 @@ const filteredDatabases = computed(() => {
     )
   }
   if (typeFilter.value) {
-    list = list.filter((db) => (db.kb_type || 'milvus') === typeFilter.value)
+    list = list.filter((db) => (db.kb_type || 'lightrag') === typeFilter.value)
   }
   return list
 })
@@ -288,25 +296,46 @@ const state = reactive({
   openNewDatabaseModel: false
 })
 
-const createDefaultShareConfig = () => ({
-  access_level: 'global',
-  department_ids: [],
-  user_uids: []
+// 共享配置状态（用于提交数据）
+const shareConfig = ref({
+  is_shared: true,
+  accessible_department_ids: []
 })
 
-const shareConfig = ref(createDefaultShareConfig())
-const shareConfigFormRef = ref(null)
+// 语言选项（值使用英文，以保证后端/LightRAG 兼容；标签为中英文方便理解）
+const languageOptions = [
+  { label: '中文 Chinese', value: 'Chinese' },
+  { label: '英语 English', value: 'English' },
+  { label: '日语 Japanese', value: 'Japanese' },
+  { label: '韩语 Korean', value: 'Korean' },
+  { label: '德语 German', value: 'German' },
+  { label: '法语 French', value: 'French' },
+  { label: '西班牙语 Spanish', value: 'Spanish' },
+  { label: '葡萄牙语 Portuguese', value: 'Portuguese' },
+  { label: '俄语 Russian', value: 'Russian' },
+  { label: '阿拉伯语 Arabic', value: 'Arabic' },
+  { label: '印地语 Hindi', value: 'Hindi' }
+]
 
 const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
 
 const createEmptyDatabaseForm = () => ({
   name: '',
   description: '',
-  embedding_model_spec: configStore.config?.embed_model,
-  kb_type: '',
+  embed_model_name: configStore.config?.embed_model,
+  kb_type: 'milvus',
+  is_private: false,
   storage: '',
   chunk_preset_id: 'general',
-  additional_params: {}
+  language: 'Chinese',
+  llm_info: {
+    model_spec: '',
+    provider: '',
+    model_name: ''
+  },
+  dify_api_url: '',
+  dify_token: '',
+  dify_dataset_id: ''
 })
 
 const newDatabase = reactive(createEmptyDatabaseForm())
@@ -315,52 +344,41 @@ const selectedPresetDescription = computed(() =>
   getChunkPresetDescription(newDatabase.chunk_preset_id)
 )
 
+const llmModelSpec = computed(() => buildDisplaySpec(newDatabase.llm_info))
+
 // 支持的知识库类型
 const supportedKbTypes = ref({})
 
 // 有序的知识库类型
 const orderedKbTypes = computed(() => supportedKbTypes.value)
 
-const selectedKbTypeInfo = computed(() => supportedKbTypes.value[newDatabase.kb_type] || null)
-
-const createParamOptions = computed(() => selectedKbTypeInfo.value?.create_params?.options || [])
-
-const getKbTypeDescription = (typeInfo) => typeInfo?.description || ''
-
-const resetCreateParamValues = () => {
-  newDatabase.additional_params = {}
-  for (const field of createParamOptions.value) {
-    if ('default' in field) {
-      newDatabase.additional_params[field.key] = field.default
-    } else if (field.type === 'boolean') {
-      newDatabase.additional_params[field.key] = false
-    } else {
-      newDatabase.additional_params[field.key] = ''
-    }
-  }
-}
-
 // 加载支持的知识库类型
 const loadSupportedKbTypes = async () => {
   try {
     const data = await typeApi.getKnowledgeBaseTypes()
-    supportedKbTypes.value = data.kb_types || {}
-    newDatabase.kb_type = kbTypes.value[0] || ''
-    resetCreateParamValues()
+    supportedKbTypes.value = data.kb_types
+    console.log('支持的知识库类型:', supportedKbTypes.value)
   } catch (error) {
     console.error('加载知识库类型失败:', error)
-    supportedKbTypes.value = {}
-    newDatabase.kb_type = ''
-    resetCreateParamValues()
-    message.error('加载知识库类型失败，请稍后重试')
+    // 如果加载失败，设置默认类型
+    supportedKbTypes.value = {
+      lightrag: {
+        description: '基于图检索的知识库，支持实体关系构建和复杂查询',
+        class_name: 'LightRagKB'
+      }
+    }
   }
 }
 
+// 重排序模型信息现在直接从 configStore.config.reranker_names 获取，无需单独加载
+
 const resetNewDatabase = () => {
   Object.assign(newDatabase, createEmptyDatabaseForm())
-  newDatabase.kb_type = kbTypes.value[0] || ''
-  resetCreateParamValues()
-  shareConfig.value = createDefaultShareConfig()
+  // 重置共享配置
+  shareConfig.value = {
+    is_shared: true,
+    accessible_department_ids: []
+  }
 }
 
 const cancelCreateDatabase = () => {
@@ -404,7 +422,13 @@ const handleKbTypeChange = (type) => {
   console.log('知识库类型改变:', type)
   resetNewDatabase()
   newDatabase.kb_type = type
-  resetCreateParamValues()
+}
+
+// 处理LLM选择
+const handleLLMSelect = (spec) => {
+  const parsed = parseModelSpec(spec)
+  if (!parsed) return
+  Object.assign(newDatabase.llm_info, parsed)
 }
 
 // 构建请求数据（只负责表单数据转换）
@@ -416,17 +440,18 @@ const buildRequestData = () => {
     additional_params: {}
   }
 
-  if (selectedKbTypeInfo.value?.requires_embedding_model) {
-    requestData.embedding_model_spec =
-      newDatabase.embedding_model_spec || configStore.config.embed_model
+  if (newDatabase.kb_type !== 'dify') {
+    requestData.embed_model_name = newDatabase.embed_model_name || configStore.config.embed_model
+    requestData.additional_params.is_private = newDatabase.is_private || false
     requestData.additional_params.chunk_preset_id = newDatabase.chunk_preset_id || 'general'
   }
 
+  // 添加共享配置
   requestData.share_config = {
-    access_level: shareConfig.value.access_level,
-    department_ids:
-      shareConfig.value.access_level === 'department' ? shareConfig.value.department_ids || [] : [],
-    user_uids: shareConfig.value.access_level === 'user' ? shareConfig.value.user_uids || [] : []
+    is_shared: shareConfig.value.is_shared,
+    accessible_departments: shareConfig.value.is_shared
+      ? []
+      : shareConfig.value.accessible_department_ids || []
   }
 
   // 根据类型添加特定配置
@@ -436,9 +461,20 @@ const buildRequestData = () => {
     }
   }
 
-  for (const field of createParamOptions.value) {
-    const value = newDatabase.additional_params[field.key]
-    requestData.additional_params[field.key] = typeof value === 'string' ? value.trim() : value
+  if (newDatabase.kb_type === 'lightrag') {
+    requestData.additional_params.language = newDatabase.language || 'English'
+    if (
+      newDatabase.llm_info.model_spec ||
+      (newDatabase.llm_info.provider && newDatabase.llm_info.model_name)
+    ) {
+      requestData.llm_info = buildLlmInfoPayload(newDatabase.llm_info)
+    }
+  }
+
+  if (newDatabase.kb_type === 'dify') {
+    requestData.additional_params.dify_api_url = (newDatabase.dify_api_url || '').trim()
+    requestData.additional_params.dify_token = (newDatabase.dify_token || '').trim()
+    requestData.additional_params.dify_dataset_id = (newDatabase.dify_dataset_id || '').trim()
   }
 
   return requestData
@@ -446,24 +482,17 @@ const buildRequestData = () => {
 
 // 创建按钮处理
 const handleCreateDatabase = async () => {
-  if (!selectedKbTypeInfo.value) {
-    message.error('知识库类型加载失败，无法创建知识库')
-    return
-  }
-
-  for (const field of createParamOptions.value) {
-    if (!field.required) continue
-    const value = newDatabase.additional_params[field.key]
-    if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
-      message.error(`请填写${field.label || field.key}`)
+  if (newDatabase.kb_type === 'dify') {
+    if (
+      !newDatabase.dify_api_url?.trim() ||
+      !newDatabase.dify_token?.trim() ||
+      !newDatabase.dify_dataset_id?.trim()
+    ) {
+      message.error('请完整填写 Dify API URL、Token 和 Dataset ID')
       return
     }
-  }
-
-  if (shareConfigFormRef.value) {
-    const validation = shareConfigFormRef.value.validate()
-    if (!validation.valid) {
-      message.warning(validation.message)
+    if (!newDatabase.dify_api_url.trim().endsWith('/v1')) {
+      message.error('Dify API URL 必须以 /v1 结尾')
       return
     }
   }
@@ -479,12 +508,9 @@ const handleCreateDatabase = async () => {
 }
 
 const cardSubtitle = (database) => {
-  const parts = []
+  const parts = [`${database.row_count || 0} 文件`]
   if (database.created_at) {
     parts.push(formatCreatedTime(database.created_at))
-  }
-  if (!kbUtils.isReadOnlyDatabase(database)) {
-    parts.push(`${database.row_count || 0} 文件`)
   }
   return parts.join(' · ')
 }
@@ -492,27 +518,27 @@ const cardSubtitle = (database) => {
 const cardTags = (database) => {
   const tags = [
     {
-      name: getKbTypeLabel(database.kb_type || 'milvus'),
-      color: getKbTypeColor(database.kb_type || 'milvus')
+      name: getKbTypeLabel(database.kb_type || 'lightrag'),
+      color: getKbTypeColor(database.kb_type || 'lightrag')
     }
   ]
-  if (database.embedding_model_spec) {
+  if (database.embed_info?.name) {
     tags.push({
-      name: database.embedding_model_spec.split('/').slice(-1)[0],
+      name: database.embed_info.name.split('/').slice(-1)[0],
       color: 'blue'
     })
   }
   return tags
 }
 
-const navigateToDatabase = (database) => {
-  router.push({ path: `/extensions/knowledgebase/${database.kb_id}` })
+const navigateToDatabase = (databaseId) => {
+  router.push({ path: `/database/${databaseId}` })
 }
 
 watch(
   () => route.path,
   (newPath) => {
-    if (newPath === '/extensions' && route.query.tab === 'knowledge') {
+    if (newPath === '/database') {
       databaseStore.loadDatabases()
     }
   }
@@ -521,10 +547,6 @@ watch(
 onMounted(() => {
   loadSupportedKbTypes()
   databaseStore.loadDatabases()
-})
-
-defineExpose({
-  loading: computed(() => dbState.value.listLoading)
 })
 </script>
 
@@ -743,6 +765,38 @@ defineExpose({
 
 .database-container {
   padding: 0;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 100px 20px;
+  text-align: center;
+
+  .empty-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin: 0 0 12px 0;
+    letter-spacing: -0.02em;
+  }
+
+  .empty-description {
+    font-size: 14px;
+    color: var(--gray-600);
+    margin: 0 0 32px 0;
+    line-height: 1.5;
+    max-width: 320px;
+  }
+
+  .ant-btn {
+    height: 44px;
+    padding: 0 24px;
+    font-size: 15px;
+    font-weight: 500;
+  }
 }
 
 .loading-container {

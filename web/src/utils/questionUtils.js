@@ -80,4 +80,23 @@ export const normalizeQuestions = (rawQuestions) => {
     .filter(Boolean)
 }
 
+/**
+ * 从旧格式构建单个问题（向后兼容）
+ */
+export const buildLegacyQuestion = (chunk, interruptInfo) => {
+  const question = String(chunk?.question || interruptInfo?.question || '').trim()
+  if (!question) return null
+
+  const operation = String(chunk?.operation || interruptInfo?.operation || '').trim()
+
+  return {
+    questionId: String(chunk?.question_id || interruptInfo?.question_id || '').trim() || 'q-1',
+    question,
+    options: normalizeOptions(chunk?.options || interruptInfo?.options || []),
+    multiSelect: Boolean(chunk?.multi_select ?? interruptInfo?.multi_select ?? false),
+    allowOther: Boolean(chunk?.allow_other ?? interruptInfo?.allow_other ?? true),
+    operation
+  }
+}
+
 export { DEFAULT_OTHER_OPTION_VALUE }

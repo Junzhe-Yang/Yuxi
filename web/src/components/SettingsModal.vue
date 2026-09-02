@@ -21,21 +21,21 @@
         <div class="settings-sider-nav">
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'account' }"
-            @click="activeTab = 'account'"
-            v-if="userStore.isLoggedIn"
-          >
-            <CircleUser class="icon" :size="18" />
-            <span>账户设置</span>
-          </div>
-          <div
-            class="sider-item"
             :class="{ activesec: activeTab === 'base' }"
             @click="activeTab = 'base'"
             v-if="userStore.isAdmin"
           >
             <Settings class="icon" :size="18" />
             <span>基本设置</span>
+          </div>
+          <div
+            class="sider-item"
+            :class="{ activesec: activeTab === 'model' }"
+            @click="activeTab = 'model'"
+            v-if="userStore.isSuperAdmin"
+          >
+            <SquareCode class="icon" :size="18" />
+            <span>模型配置</span>
           </div>
           <div
             class="sider-item"
@@ -57,12 +57,12 @@
           </div>
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'agentEnv' }"
-            @click="activeTab = 'agentEnv'"
+            :class="{ activesec: activeTab === 'apikey' }"
+            @click="activeTab = 'apikey'"
             v-if="userStore.isLoggedIn"
           >
-            <SquareTerminal class="icon" :size="18" />
-            <span>环境变量</span>
+            <KeyIcon class="icon" :size="18" />
+            <span>API Key</span>
           </div>
         </div>
 
@@ -104,27 +104,19 @@
       <div class="settings-mobile-nav">
         <div
           class="nav-item"
-          :class="{ active: activeTab === 'account' }"
-          @click="activeTab = 'account'"
-          v-if="userStore.isLoggedIn"
-        >
-          账户设置
-        </div>
-        <div
-          class="nav-item"
-          :class="{ active: activeTab === 'agentEnv' }"
-          @click="activeTab = 'agentEnv'"
-          v-if="userStore.isLoggedIn"
-        >
-          沙盒环境变量
-        </div>
-        <div
-          class="nav-item"
           :class="{ active: activeTab === 'base' }"
           @click="activeTab = 'base'"
           v-if="userStore.isAdmin"
         >
           基本设置
+        </div>
+        <div
+          class="nav-item"
+          :class="{ active: activeTab === 'model' }"
+          @click="activeTab = 'model'"
+          v-if="userStore.isSuperAdmin"
+        >
+          模型配置
         </div>
         <div
           class="nav-item"
@@ -142,21 +134,25 @@
         >
           部门管理
         </div>
+        <div
+          class="nav-item"
+          :class="{ active: activeTab === 'apikey' }"
+          @click="activeTab = 'apikey'"
+          v-if="userStore.isLoggedIn"
+        >
+          API Key
+        </div>
       </div>
 
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-show="activeTab === 'account'" v-if="userStore.isLoggedIn">
-            <AccountSettingsComponent />
-          </div>
-
-          <div v-if="activeTab === 'agentEnv' && userStore.isLoggedIn">
-            <AgentEnvSettingsCard />
-          </div>
-
           <div v-show="activeTab === 'base'" v-if="userStore.isAdmin">
             <BasicSettingsSection />
+          </div>
+
+          <div v-show="activeTab === 'model'" v-if="userStore.isSuperAdmin">
+            <ModelProvidersComponent />
           </div>
 
           <div v-show="activeTab === 'user'" v-if="userStore.isAdmin">
@@ -165,6 +161,10 @@
 
           <div v-show="activeTab === 'department'" v-if="userStore.isSuperAdmin">
             <DepartmentManagementComponent />
+          </div>
+
+          <div v-show="activeTab === 'apikey'" v-if="userStore.isLoggedIn">
+            <ApiKeyManagementComponent />
           </div>
         </div>
       </div>
@@ -176,36 +176,32 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import {
-  CircleUser,
   ExternalLink,
+  Key as KeyIcon,
   Settings,
+  SquareCode,
   Star,
-  SquareTerminal,
   User,
   Users,
   X
 } from 'lucide-vue-next'
-import AccountSettingsComponent from '@/components/AccountSettingsComponent.vue'
-import AgentEnvSettingsCard from '@/components/AgentEnvSettingsCard.vue'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
+import ModelProvidersComponent from '@/components/ModelProvidersComponent.vue'
 import UserManagementComponent from '@/components/UserManagementComponent.vue'
 import DepartmentManagementComponent from '@/components/DepartmentManagementComponent.vue'
+import ApiKeyManagementComponent from '@/components/ApiKeyManagementComponent.vue'
 
 const props = defineProps({
   visible: {
     type: Boolean,
     default: false
-  },
-  initialTab: {
-    type: String,
-    default: ''
   }
 })
 
 const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
-const activeTab = ref('account')
+const activeTab = ref('base')
 const showStarCard = ref(true)
 
 const STAR_CARD_STORAGE_KEY = 'yuxi-settings-star-card-dismissed'
@@ -215,22 +211,6 @@ const visible = computed({
   get: () => props.visible,
   set: (value) => emit('update:visible', value)
 })
-
-const availableTabs = computed(() => {
-  const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'agentEnv')
-  if (userStore.isAdmin) tabs.push('base', 'user')
-  if (userStore.isSuperAdmin) tabs.push('department')
-  return tabs
-})
-
-const setActiveTab = (preferredTab) => {
-  if (preferredTab && availableTabs.value.includes(preferredTab)) {
-    activeTab.value = preferredTab
-    return
-  }
-  activeTab.value = userStore.isAdmin ? 'base' : availableTabs.value[0]
-}
 
 const handleClose = () => {
   emit('close')
@@ -245,11 +225,16 @@ onMounted(() => {
   showStarCard.value = localStorage.getItem(STAR_CARD_STORAGE_KEY) !== 'true'
 })
 
+// 根据用户权限设置默认标签页
 watch(
-  () => [props.visible, props.initialTab],
-  ([newVal]) => {
+  () => props.visible,
+  (newVal) => {
     if (newVal) {
-      setActiveTab(props.initialTab)
+      if (userStore.isAdmin) {
+        activeTab.value = 'base'
+      } else if (userStore.isLogin) {
+        activeTab.value = 'apikey'
+      }
     }
   }
 )

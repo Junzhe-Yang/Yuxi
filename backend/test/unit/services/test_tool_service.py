@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from yuxi.agents.toolkits import service as tool_service
+from yuxi.services import tool_service
 
 
 def test_get_tool_metadata_includes_config_guide(monkeypatch):
@@ -34,7 +34,7 @@ def test_get_tool_metadata_includes_config_guide(monkeypatch):
 
     assert result == [
         {
-            "slug": "demo_tool",
+            "id": "demo_tool",
             "name": "演示工具",
             "description": "demo description",
             "metadata": {},

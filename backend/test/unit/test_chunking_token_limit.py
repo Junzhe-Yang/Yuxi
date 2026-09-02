@@ -86,17 +86,6 @@ class TestHardSplitByTokenLimit:
         for chunk in result:
             assert nlp.count_tokens(chunk) <= 512
 
-    def test_optional_hard_limit_keeps_slightly_oversized_text(self):
-        text = "内容" * 300  # 600 CJK tokens
-        result = nlp.hard_split_by_token_limit(text, 512, hard_limit_token_num=768)
-        assert result == [text]
-
-    def test_optional_hard_limit_merges_short_tail(self):
-        text = "内容" * 635  # 1270 CJK tokens -> 512 + 512 + 246
-        result = nlp.hard_split_by_token_limit(text, 512, hard_limit_token_num=768)
-        assert len(result) == 2
-        assert [nlp.count_tokens(chunk) for chunk in result] == [512, 758]
-
     def test_splits_long_english_text(self):
         text = "hello world " * 1000  # ~2000 word tokens
         result = nlp.hard_split_by_token_limit(text, 512)
@@ -131,21 +120,16 @@ class TestEnsureChunkTokenLimit:
         result = general._ensure_chunk_token_limit(chunks, 512)
         assert result == ["短文本一", "短文本二", "短文本三"]
 
-    def test_slightly_oversized_chunk_passes_through(self):
+    def test_oversized_chunk_gets_split(self):
         long_text = "内容" * 300  # ~600 CJK tokens
-        chunks = ["短文本", long_text, "短文本二"]
-        result = general._ensure_chunk_token_limit(chunks, 512)
-        assert result == ["短文本", long_text, "短文本二"]
-
-    def test_oversized_chunk_gets_split_with_merged_tail(self):
-        long_text = "内容" * 635  # 1270 CJK tokens -> 512 + 758
         chunks = ["短文本", long_text, "短文本二"]
         result = general._ensure_chunk_token_limit(chunks, 512)
         assert result[0] == "短文本"
         assert result[-1] == "短文本二"
         middle_chunks = result[1:-1]
-        assert len(middle_chunks) == 2
-        assert [nlp.count_tokens(chunk) for chunk in middle_chunks] == [512, 758]
+        assert len(middle_chunks) > 1
+        for chunk in middle_chunks:
+            assert nlp.count_tokens(chunk) <= 512
 
     def test_empty_chunks_filtered(self):
         chunks = ["有效文本", "", "   ", "另一段"]
@@ -175,7 +159,7 @@ class TestGeneralChunkMarkdown:
         chunks = general.chunk_markdown(doc, {"chunk_token_num": 512})
         assert len(chunks) > 1
         for chunk in chunks:
-            assert nlp.count_tokens(chunk) <= 768
+            assert nlp.count_tokens(chunk) <= 512
 
     def test_empty_document_returns_empty(self):
         assert general.chunk_markdown("", {"chunk_token_num": 512}) == []

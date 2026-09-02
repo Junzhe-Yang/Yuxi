@@ -1,6 +1,22 @@
 <template>
   <div class="file-table-container">
     <div class="panel-header">
+      <div class="upload-btn-group">
+        <a-button type="primary" size="small" class="upload-btn" @click="showAddFilesModal()">
+          <FileUp size="14" />
+          上传
+        </a-button>
+
+        <a-button
+          class="panel-action-btn"
+          type="text"
+          size="small"
+          @click="showCreateFolderModal"
+          title="新建文件夹"
+        >
+          <template #icon><FolderPlus size="16" /></template>
+        </a-button>
+      </div>
       <div class="panel-actions">
         <a-input
           v-model:value="filenameFilter"
@@ -15,108 +31,79 @@
           </template>
         </a-input>
 
-        <div class="panel-actions-default">
-          <a-dropdown trigger="click">
-            <a-button
-              type="text"
-              class="panel-action-btn"
-              :class="{ active: statusFilter !== 'all' }"
-              title="筛选状态"
-            >
-              <template #icon><Filter size="16" /></template>
-            </a-button>
-            <template #overlay>
-              <a-menu :selectedKeys="[statusFilter]" @click="handleStatusMenuClick">
-                <a-menu-item key="all">全部状态</a-menu-item>
-                <a-menu-item v-for="opt in statusOptions" :key="opt.value">
-                  {{ opt.label }}
-                </a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
-
+        <a-dropdown trigger="click">
           <a-button
             type="text"
-            @click="handleRefresh"
-            :loading="refreshing"
-            title="刷新"
             class="panel-action-btn"
+            :class="{ active: sortField !== 'filename' }"
+            title="排序"
           >
-            <template #icon><RotateCw size="16" /></template>
-          </a-button>
-          <a-button
-            type="text"
-            @click="toggleSelectionMode"
-            title="多选"
-            class="panel-action-btn"
-            :class="{ active: isSelectionMode }"
-          >
-            <template #icon><CheckSquare size="16" /></template>
-          </a-button>
-        </div>
-
-        <a-dropdown
-          trigger="click"
-          v-model:open="overflowMenuOpen"
-          :overlayStyle="{ minWidth: '220px' }"
-          overlayClassName="panel-overflow-popover"
-        >
-          <a-button type="text" class="panel-action-btn overflow-trigger" title="更多">
-            <template #icon><MoreHorizontal size="16" /></template>
+            <template #icon><ArrowUpDown size="16" /></template>
           </a-button>
           <template #overlay>
-            <div class="overflow-menu-panel" @click.stop>
-              <div class="overflow-search">
-                <a-input
-                  v-model:value="filenameFilter"
-                  placeholder="搜索文件名"
-                  size="small"
-                  allow-clear
-                  @change="onFilterChange"
-                >
-                  <template #prefix>
-                    <Search size="14" style="color: var(--gray-400)" />
-                  </template>
-                </a-input>
-              </div>
-              <div class="overflow-actions">
-                <a-dropdown trigger="click" placement="bottomLeft">
-                  <div class="overflow-action-item" :class="{ active: statusFilter !== 'all' }">
-                    <Filter size="16" />
-                    <span>筛选</span>
-                    <span class="overflow-action-hint">{{ currentStatusLabel }}</span>
-                  </div>
-                  <template #overlay>
-                    <a-menu :selectedKeys="[statusFilter]" @click="handleStatusMenuClick">
-                      <a-menu-item key="all">全部状态</a-menu-item>
-                      <a-menu-item v-for="opt in statusOptions" :key="opt.value">
-                        {{ opt.label }}
-                      </a-menu-item>
-                    </a-menu>
-                  </template>
-                </a-dropdown>
-
-                <div
-                  class="overflow-action-item"
-                  :class="{ 'is-loading': refreshing }"
-                  @click="handleRefresh"
-                >
-                  <RotateCw size="16" :class="{ spin: refreshing }" />
-                  <span>刷新</span>
-                </div>
-
-                <div
-                  class="overflow-action-item"
-                  :class="{ active: isSelectionMode }"
-                  @click="toggleSelectionMode"
-                >
-                  <CheckSquare size="16" />
-                  <span>多选</span>
-                </div>
-              </div>
-            </div>
+            <a-menu :selectedKeys="[sortField]" @click="handleSortMenuClick">
+              <a-menu-item v-for="opt in sortOptions" :key="opt.value">
+                {{ opt.label }}
+              </a-menu-item>
+            </a-menu>
           </template>
         </a-dropdown>
+
+        <a-dropdown trigger="click">
+          <a-button
+            type="text"
+            class="panel-action-btn"
+            :class="{ active: statusFilter !== 'all' }"
+            title="筛选状态"
+          >
+            <template #icon><Filter size="16" /></template>
+          </a-button>
+          <template #overlay>
+            <a-menu :selectedKeys="[statusFilter]" @click="handleStatusMenuClick">
+              <a-menu-item key="all">全部状态</a-menu-item>
+              <a-menu-item v-for="opt in statusOptions" :key="opt.value">
+                {{ opt.label }}
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+
+        <a-button
+          type="text"
+          @click="handleRefresh"
+          :loading="refreshing"
+          title="刷新"
+          class="panel-action-btn"
+        >
+          <template #icon><RotateCw size="16" /></template>
+        </a-button>
+        <a-button
+          type="text"
+          @click="toggleSelectionMode"
+          title="多选"
+          class="panel-action-btn"
+          :class="{ active: isSelectionMode }"
+        >
+          <template #icon><CheckSquare size="16" /></template>
+        </a-button>
+        <!-- <a-button
+          @click="toggleAutoRefresh"
+          size="small"
+          :type="autoRefresh ? 'primary' : 'default'"
+          title="自动刷新文件状态"
+          class="auto-refresh-btn panel-action-btn"
+        >
+          Auto
+        </a-button> -->
+        <a-button
+          type="text"
+          @click="toggleRightPanel"
+          title="切换右侧面板"
+          class="panel-action-btn expand"
+          :class="{ expanded: props.rightPanelVisible }"
+        >
+          <template #icon><ChevronLast size="16" /></template>
+        </a-button>
       </div>
     </div>
 
@@ -177,7 +164,7 @@
         <ChunkParamsConfig
           :temp-chunk-params="indexParams"
           :show-qa-split="true"
-          :show-chunk-size-overlap="true"
+          :show-chunk-size-overlap="!isLightRAG"
           :show-preset="true"
           :allow-preset-follow-default="true"
           :database-preset-id="store.database?.additional_params?.chunk_preset_id || 'general'"
@@ -205,6 +192,7 @@
       row-key="file_id"
       class="my-table"
       size="small"
+      :show-header="false"
       :pagination="tablePagination"
       @change="handleTableChange"
       v-model:expandedRowKeys="expandedRowKeys"
@@ -226,56 +214,93 @@
         <div v-if="column.key === 'filename'">
           <template v-if="record.is_folder">
             <span class="folder-row" @click="toggleExpand(record)">
-              <FileTypeIcon is-dir :size="16" :style="{ marginRight: '8px' }" />
+              <component
+                :is="
+                  expandedRowKeys.includes(record.file_id) ? h(FolderOpenFilled) : h(FolderFilled)
+                "
+                style="margin-right: 8px; color: #ffb800; font-size: 16px"
+              />
               {{ record.filename }}
             </span>
           </template>
-          <a-button v-else class="main-btn" type="link" @click="openFileDetail(record)">
-            <FileTypeIcon
-              :name="record.displayName || text"
-              :size="16"
-              :style="{ marginRight: '8px' }"
-            />
-            {{ record.displayName || text }}
-          </a-button>
+          <a-popover
+            v-else
+            placement="right"
+            overlayClassName="file-info-popover"
+            :mouseEnterDelay="0.5"
+          >
+            <template #content>
+              <div class="file-info-card">
+                <div class="info-row">
+                  <span class="label">ID:</span> <span class="value">{{ record.file_id }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">状态:</span>
+                  <span class="value">{{ getStatusText(record.status) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">时间:</span>
+                  <span class="value">{{ formatRelativeTime(record.created_at) }}</span>
+                </div>
+                <div v-if="record.error_message" class="info-row error">
+                  <span class="label">错误:</span>
+                  <span class="value">{{ record.error_message }}</span>
+                </div>
+              </div>
+            </template>
+            <a-button class="main-btn" type="link" @click="openFileDetail(record)">
+              <component
+                :is="getFileIcon(record.displayName || text)"
+                :style="{
+                  marginRight: '0',
+                  color: getFileIconColor(record.displayName || text),
+                  fontSize: '16px'
+                }"
+              />
+              {{ record.displayName || text }}
+            </a-button>
+          </a-popover>
         </div>
         <span v-else-if="column.key === 'type'">
           <span v-if="!record.is_folder" :class="['span-type', text]">{{
             text?.toUpperCase()
           }}</span>
         </span>
-        <div v-else-if="column.key === 'status'" class="file-status-cell">
+        <div
+          v-else-if="column.key === 'status'"
+          style="display: flex; align-items: center; justify-content: flex-end"
+        >
           <template v-if="!record.is_folder">
-            <span
-              v-if="text === 'done' || text === 'indexed'"
-              class="file-status-icon status-success"
-              ><CheckCircleFilled
-            /></span>
-            <span
-              v-else-if="text === 'failed' || text === 'error_parsing' || text === 'error_indexing'"
-              class="file-status-icon status-error"
-              ><CloseCircleFilled
-            /></span>
-            <span
-              v-else-if="text === 'processing' || text === 'parsing' || text === 'indexing'"
-              class="file-status-icon status-info"
-              ><HourglassFilled
-            /></span>
-            <span
-              v-else-if="text === 'waiting' || text === 'uploaded'"
-              class="file-status-icon status-warning"
-              ><ClockCircleFilled
-            /></span>
-            <span v-else-if="text === 'parsed'" class="file-status-icon status-primary"
-              ><FileTextFilled
-            /></span>
-            <span>{{ getStatusText(text) }}</span>
+            <a-tooltip :title="getStatusText(text)">
+              <span
+                v-if="text === 'done' || text === 'indexed'"
+                style="color: var(--color-success-500)"
+                ><CheckCircleFilled
+              /></span>
+              <span
+                v-else-if="
+                  text === 'failed' || text === 'error_parsing' || text === 'error_indexing'
+                "
+                style="color: var(--color-error-500)"
+                ><CloseCircleFilled
+              /></span>
+              <span
+                v-else-if="text === 'processing' || text === 'parsing' || text === 'indexing'"
+                style="color: var(--color-info-500)"
+                ><HourglassFilled
+              /></span>
+              <span
+                v-else-if="text === 'waiting' || text === 'uploaded'"
+                style="color: var(--color-warning-500)"
+                ><ClockCircleFilled
+              /></span>
+              <span v-else-if="text === 'parsed'" style="color: var(--color-primary-500)"
+                ><FileTextFilled
+              /></span>
+              <span v-else>{{ text }}</span>
+            </a-tooltip>
           </template>
         </div>
-
-        <span v-else-if="column.key === 'created_at'" class="file-time-cell">
-          {{ record.is_folder ? '-' : formatFileTableTime(text) }}
-        </span>
 
         <div v-else-if="column.key === 'action'" class="table-row-actions">
           <a-popover
@@ -337,7 +362,7 @@
 
                   <!-- Reindex Action -->
                   <a-button
-                    v-if="record.status === 'done' || record.status === 'indexed'"
+                    v-if="!isLightRAG && (record.status === 'done' || record.status === 'indexed')"
                     type="text"
                     block
                     @click="handleReindexFile(record)"
@@ -381,23 +406,40 @@ import {
   HourglassFilled,
   CloseCircleFilled,
   ClockCircleFilled,
+  FolderFilled,
+  FolderOpenFilled,
   FileTextFilled
 } from '@ant-design/icons-vue'
 import {
   Trash2,
   Download,
   RotateCw,
+  ChevronLast,
   Ellipsis,
   FolderPlus,
   CheckSquare,
   FileText,
   Database,
+  FileUp,
   Search,
   Filter,
-  MoreHorizontal
+  ArrowUpDown
 } from 'lucide-vue-next'
 
 const store = useDatabaseStore()
+
+const sortField = ref('filename')
+const sortOptions = [
+  { label: '文件名', value: 'filename' },
+  { label: '创建时间', value: 'created_at' },
+  { label: '状态', value: 'status' }
+]
+
+const handleSortMenuClick = (e) => {
+  sortField.value = e.key
+  // 排序变化时重置到第一页
+  paginationConfig.value.current = 1
+}
 
 const handleStatusMenuClick = (e) => {
   statusFilter.value = e.key
@@ -423,8 +465,18 @@ const getStatusText = (status) => {
   return map[status] || status
 }
 
+const props = defineProps({
+  rightPanelVisible: {
+    type: Boolean,
+    default: true
+  }
+})
+
+const emit = defineEmits(['showAddFilesModal', 'toggleRightPanel'])
+
 const files = computed(() => Object.values(store.database.files || {}))
-const refreshing = computed(() => store.state.databaseLoading)
+const isLightRAG = computed(() => store.database?.kb_type?.toLowerCase() === 'lightrag')
+const refreshing = computed(() => store.state.refrashing)
 const lock = computed(() => store.state.lock)
 const batchDeleting = computed(() => store.state.batchDeleting)
 const batchParsing = computed(() => store.state.chunkLoading)
@@ -435,13 +487,6 @@ const selectedRowKeys = computed({
 })
 
 const isSelectionMode = ref(false)
-const overflowMenuOpen = ref(false)
-
-const currentStatusLabel = computed(() => {
-  if (statusFilter.value === 'all') return ''
-  const opt = statusOptions.find((o) => o.value === statusFilter.value)
-  return opt ? opt.label : ''
-})
 
 const allSelectableFiles = computed(() => {
   const nameFilter = filenameFilter.value.trim().toLowerCase()
@@ -514,10 +559,6 @@ const showCreateFolderModal = (parentId = null) => {
   createFolderModalVisible.value = true
 }
 
-defineExpose({
-  showCreateFolderModal
-})
-
 const toggleExpand = (record) => {
   if (!record.is_folder) return
 
@@ -544,7 +585,7 @@ const handleCreateFolder = async () => {
 
   createFolderLoading.value = true
   try {
-    await documentApi.createFolder(store.kbId, newFolderName.value, currentParentId.value)
+    await documentApi.createFolder(store.databaseId, newFolderName.value, currentParentId.value)
     message.success('创建成功')
     createFolderModalVisible.value = false
     handleRefresh()
@@ -631,17 +672,27 @@ const indexConfigModalVisible = ref(false)
 const indexConfigModalLoading = computed(() => store.state.chunkLoading)
 const indexConfigModalTitle = ref('入库参数配置')
 
-const createDefaultIndexParams = () => ({
-  chunk_preset_id: '',
-  chunk_parser_config: {}
+const indexParams = ref({
+  chunk_size: 1000,
+  chunk_overlap: 200,
+  qa_separator: '',
+  chunk_preset_id: ''
 })
-
-const indexParams = ref(createDefaultIndexParams())
-
 const buildIndexParamsPayload = () => {
-  return buildChunkParamsPayload(indexParams.value, {
-    includeSizeOverlap: true
-  })
+  const payload = {}
+  if (indexParams.value.chunk_preset_id) {
+    payload.chunk_preset_id = indexParams.value.chunk_preset_id
+  }
+
+  if (isLightRAG.value) {
+    payload.qa_separator = indexParams.value.qa_separator || ''
+    return payload
+  }
+
+  return {
+    ...indexParams.value,
+    ...payload
+  }
 }
 const currentIndexFileIds = ref([])
 const isBatchIndexOperation = ref(false)
@@ -718,7 +769,8 @@ const columnsCompact = [
     title: '状态',
     dataIndex: 'status',
     key: 'status',
-    width: 90,
+    width: 60,
+    align: 'right',
     sorter: (a, b) => {
       const statusOrder = {
         done: 1,
@@ -737,15 +789,7 @@ const columnsCompact = [
     },
     sortDirections: ['ascend', 'descend']
   },
-  {
-    title: '时间',
-    dataIndex: 'created_at',
-    key: 'created_at',
-    width: 180,
-    sorter: (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
-    sortDirections: ['ascend', 'descend']
-  },
-  { title: '操作', key: 'action', dataIndex: 'file_id', width: 64, align: 'center' }
+  { title: '', key: 'action', dataIndex: 'file_id', width: 40, align: 'center' }
 ]
 
 // 构建文件树
@@ -845,7 +889,27 @@ const buildFileTree = (fileList) => {
       if (a.is_folder && !b.is_folder) return -1
       if (!a.is_folder && b.is_folder) return 1
 
-      return (a.filename || '').localeCompare(b.filename || '')
+      if (sortField.value === 'filename') {
+        return (a.filename || '').localeCompare(b.filename || '')
+      } else if (sortField.value === 'created_at') {
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+      } else if (sortField.value === 'status') {
+        const statusOrder = {
+          done: 1,
+          indexed: 1,
+          processing: 2,
+          indexing: 2,
+          parsing: 2,
+          waiting: 3,
+          uploaded: 3,
+          parsed: 3,
+          failed: 4,
+          error_indexing: 4,
+          error_parsing: 4
+        }
+        return (statusOrder[a.status] || 5) - (statusOrder[b.status] || 5)
+      }
+      return 0
     })
     nodes.forEach((node) => {
       if (node.children) sortNodes(node.children)
@@ -912,16 +976,24 @@ const canBatchIndex = computed(() => {
       !lock.value &&
       (file.status === 'parsed' ||
         file.status === 'error_indexing' ||
-        file.status === 'done' ||
-        file.status === 'indexed')
+        (!isLightRAG.value && (file.status === 'done' || file.status === 'indexed')))
     )
   })
 })
+
+const showAddFilesModal = (options = {}) => {
+  emit('showAddFilesModal', options)
+}
 
 const handleRefresh = () => {
   // 刷新时重置分页
   paginationConfig.value.current = 1
   store.getDatabaseInfo(undefined, true) // Skip query params for manual refresh
+}
+
+const toggleRightPanel = () => {
+  console.log(props.rightPanelVisible)
+  emit('toggleRightPanel')
 }
 
 const onSelectChange = (keys, selectedRows) => {
@@ -991,8 +1063,7 @@ const handleBatchIndex = async () => {
       file &&
       (file.status === 'parsed' ||
         file.status === 'error_indexing' ||
-        file.status === 'done' ||
-        file.status === 'indexed')
+        (!isLightRAG.value && (file.status === 'done' || file.status === 'indexed')))
     )
   })
 
@@ -1014,17 +1085,17 @@ const openFileDetail = (record) => {
 
 const handleDownloadFile = async (record) => {
   closePopover(record.file_id)
-  const kbId = store.kbId
-  if (!kbId) {
-    console.error('无法获取数据库ID，数据库ID:', store.kbId, '记录:', record)
+  const dbId = store.databaseId
+  if (!dbId) {
+    console.error('无法获取数据库ID，数据库ID:', store.databaseId, '记录:', record)
     message.error('无法获取数据库ID，请刷新页面后重试')
     return
   }
 
-  console.log('开始下载文件:', { kbId, fileId: record.file_id, record })
+  console.log('开始下载文件:', { dbId, fileId: record.file_id, record })
 
   try {
-    const response = await documentApi.downloadDocument(kbId, record.file_id)
+    const response = await documentApi.downloadDocument(dbId, record.file_id)
 
     // 获取文件名
     const contentDisposition = response.headers.get('content-disposition')
@@ -1077,17 +1148,11 @@ const handleParseFile = async (record) => {
   await store.parseFiles([record.file_id])
 }
 
-const resetIndexParams = (processingParams = null) => {
-  if (!processingParams) {
-    indexParams.value = createDefaultIndexParams()
-    return
-  }
-
-  const chunkParserConfig = processingParams.chunk_parser_config
-  indexParams.value = {
-    chunk_preset_id: processingParams.chunk_preset_id || '',
-    chunk_parser_config: isPlainObject(chunkParserConfig) ? { ...chunkParserConfig } : {}
-  }
+const defaultIndexParams = {
+  chunk_size: 1000,
+  chunk_overlap: 200,
+  qa_separator: '',
+  chunk_preset_id: ''
 }
 
 const loadRecordProcessingParams = async (record) => {
@@ -1095,7 +1160,7 @@ const loadRecordProcessingParams = async (record) => {
     return record.processing_params
   }
 
-  const detail = await documentApi.getDocumentInfo(store.kbId, record.file_id)
+  const detail = await documentApi.getDocumentInfo(store.databaseId, record.file_id)
   return detail?.processing_params || null
 }
 
@@ -1105,8 +1170,11 @@ const handleIndexFile = async (record) => {
   isBatchIndexOperation.value = false
   indexConfigModalTitle.value = '入库参数配置'
 
+  Object.assign(indexParams.value, defaultIndexParams)
   const processingParams = await loadRecordProcessingParams(record)
-  resetIndexParams(processingParams)
+  if (processingParams) {
+    Object.assign(indexParams.value, processingParams)
+  }
 
   indexConfigModalVisible.value = true
 }
@@ -1117,8 +1185,11 @@ const handleReindexFile = async (record) => {
   isBatchIndexOperation.value = false
   indexConfigModalTitle.value = '重新入库参数配置'
 
+  Object.assign(indexParams.value, defaultIndexParams)
   const processingParams = await loadRecordProcessingParams(record)
-  resetIndexParams(processingParams)
+  if (processingParams) {
+    Object.assign(indexParams.value, processingParams)
+  }
 
   indexConfigModalVisible.value = true
 }
@@ -1137,7 +1208,13 @@ const handleIndexConfigConfirm = async () => {
       // 关闭模态框
       indexConfigModalVisible.value = false
 
-      resetIndexParams()
+      // 重置参数为默认值
+      Object.assign(indexParams.value, {
+        chunk_size: 1000,
+        chunk_overlap: 200,
+        qa_separator: '',
+        chunk_preset_id: ''
+      })
     } else {
       // message.error(`入库失败: ${result.message}`); // store already shows message
     }
@@ -1153,26 +1230,13 @@ const handleIndexConfigCancel = () => {
   indexConfigModalVisible.value = false
   currentIndexFileIds.value = []
   isBatchIndexOperation.value = false
-  resetIndexParams()
-}
-
-const formatFileTableTime = (value) => {
-  const parsed = parseToShanghai(value)
-  if (!parsed) return '-'
-
-  const oneYearAgo = parseToShanghai(Date.now()).subtract(1, 'year')
-  if (parsed.isAfter(oneYearAgo)) {
-    return parsed.format('MM月DD日 HH:mm:ss')
-  }
-
-  return parsed.format('YYYY年MM月DD日')
+  // 重置参数为默认值
+  Object.assign(indexParams.value, defaultIndexParams)
 }
 
 // 导入工具函数
-import { parseToShanghai } from '@/utils/time'
-import { buildChunkParamsPayload, isPlainObject } from '@/utils/chunk_presets'
+import { getFileIcon, getFileIconColor, formatRelativeTime } from '@/utils/file_utils'
 import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 </script>
 
 <style scoped>
@@ -1185,8 +1249,7 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   overflow: hidden;
   border-radius: 12px;
   border: 1px solid var(--gray-150);
-  container-type: inline-size;
-  container-name: file-table;
+  /* padding-top: 6px; */
 }
 
 .panel-header {
@@ -1194,46 +1257,21 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
-  padding: 12px;
+  padding: 8px 8px;
 }
 
 .panel-actions {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-
-  .panel-actions-default {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-  }
-
-  .overflow-trigger {
-    display: none;
-    margin-left: auto;
-  }
+  gap: 6px;
 
   .action-searcher {
-    width: 220px;
+    width: 120px;
+    margin-right: 8px;
     border-radius: 6px;
     padding: 4px 8px;
     border: none;
     box-shadow: 0 0 0 1px var(--shadow-1);
-  }
-}
-
-@container file-table (max-width: 480px) {
-  .panel-actions {
-    .action-searcher,
-    .panel-actions-default {
-      display: none;
-    }
-
-    .overflow-trigger {
-      display: flex;
-    }
   }
 }
 
@@ -1281,12 +1319,10 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   background-color: transparent;
   min-height: 0;
   table-layout: fixed;
-  padding: 0 8px;
+  padding-left: 4px;
 }
 
 .my-table .main-btn {
-  display: flex;
-  justify-content: center;
   padding: 0;
   height: auto;
   line-height: 1.4;
@@ -1332,44 +1368,6 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   height: 16px;
 }
 
-.file-status-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--gray-700);
-  white-space: nowrap;
-}
-
-.file-status-icon {
-  display: inline-flex;
-  align-items: center;
-}
-
-.status-success {
-  color: var(--color-success-500);
-}
-
-.status-error {
-  color: var(--color-error-500);
-}
-
-.status-info {
-  color: var(--color-info-500);
-}
-
-.status-warning {
-  color: var(--color-warning-500);
-}
-
-.status-primary {
-  color: var(--color-primary-500);
-}
-
-.file-time-cell {
-  color: var(--gray-600);
-  white-space: nowrap;
-}
-
 .my-table .rechunk-btn:hover {
   color: var(--color-warning-500);
 }
@@ -1409,11 +1407,9 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 4px;
   color: var(--gray-600);
-  background-color: var(--gray-0);
-  box-shadow: 0 0 0 1px var(--shadow-1);
   transition: all 0.1s ease;
   font-size: 12px;
   width: auto;
@@ -1442,9 +1438,9 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
 .panel-action-btn.active {
   color: var(--main-color);
-  background-color: var(--main-10);
+  background-color: var(--gray-100);
   font-weight: 600;
-  box-shadow: 0 0 0 1px var(--main-200);
+  box-shadow: 0 0 0 1px var(--shadow-1);
 }
 
 .action-trigger-btn {
@@ -1500,6 +1496,22 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
   td {
     background-color: transparent !important;
+  }
+}
+
+.upload-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .upload-btn {
+    height: 28px;
+    font-size: 13px;
+    display: flex;
+    padding: 0 12px;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
   }
 }
 </style>
@@ -1565,78 +1577,55 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
   }
 }
 
-.panel-overflow-popover {
+.file-info-popover {
   .ant-popover-inner {
-    padding: 0;
     border-radius: 8px;
-    border: 1px solid var(--gray-150);
-    background: var(--gray-0);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    overflow: hidden;
   }
 
-  .ant-popover-arrow {
-    display: none;
-  }
-}
+  // .ant-popover-inner-content {
+  //   padding: 16px;
+  // }
 
-.overflow-menu-panel {
-  width: 160px;
-  background: var(--gray-0);
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-
-  .overflow-search {
-    padding: 10px 12px 8px;
-    border-bottom: 1px solid var(--gray-100);
-  }
-
-  .overflow-actions {
-    display: flex;
-    flex-direction: column;
-    padding: 4px;
-  }
-
-  .overflow-action-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    cursor: pointer;
+  .file-info-card {
+    min-width: 120px;
+    max-width: 320px;
     font-size: 13px;
-    color: var(--gray-700);
-    transition: background-color 0.1s ease;
 
-    &:hover {
-      background-color: var(--gray-50);
-      color: var(--main-color);
+    .info-row {
+      display: flex;
+      margin-bottom: 8px;
+      line-height: 1.5;
+      align-items: flex-start;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      .label {
+        color: var(--gray-500);
+        width: 40px;
+        flex-shrink: 0;
+        text-align: right;
+        margin-right: 12px;
+        font-weight: 500;
+      }
+
+      .value {
+        color: var(--gray-900);
+        word-break: break-all;
+        flex: 1;
+        font-family: monospace; /* Optional: for ID and numbers */
+      }
+
+      &.error {
+        .label {
+          color: var(--color-error-500);
+        }
+        .value {
+          color: var(--color-error-500);
+        }
+      }
     }
-
-    &.active {
-      color: var(--main-color);
-      background-color: var(--main-10);
-      font-weight: 500;
-    }
-
-    .overflow-action-hint {
-      margin-left: auto;
-      font-size: 12px;
-      color: var(--gray-400);
-    }
-
-    .spin {
-      animation: spin 1s linear infinite;
-    }
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 </style>

@@ -1,182 +1,617 @@
+"""SubAgent 单元测试"""
+
 from __future__ import annotations
 
-import importlib
-from types import SimpleNamespace
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from yuxi.storage.postgres.models_business import SubAgent
+from yuxi.utils.datetime_utils import utc_now_naive
+
+
+# =============================================================================
+# Router Tests
+# =============================================================================
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.utils.auth_middleware import get_admin_user, get_db, get_required_user
-
-agent_router_module = importlib.import_module("server.routers.agent_router")
-
-
-def _user(role: str = "admin"):
-    uid = "admin" if role in {"admin", "superadmin"} else "user"
-    return SimpleNamespace(uid=uid, role=role, department_id=1)
+from server.routers.subagent_router import subagents_router
+from server.utils.auth_middleware import get_admin_user, get_db
+from yuxi.storage.postgres.models_business import User
 
 
-def _agent(slug: str, *, backend_id: str = "ChatbotAgent", is_subagent: bool = False):
-    return SimpleNamespace(
-        id=slug,
-        slug=slug,
-        name=slug,
-        backend_id=backend_id,
-        description="",
-        icon=None,
-        pics=[],
-        config_json={},
-        share_config={"access_level": "user", "user_uids": ["admin"]},
-        is_default=False,
-        is_subagent=is_subagent,
-        can_manage=True,
-    )
-
-
-class _FakeAgentManager:
-    def get_agent(self, backend_id: str):
-        if backend_id in {"ChatbotAgent", "SubAgentBackend"}:
-            return SimpleNamespace(context_schema=None)
-        return None
-
-
-class _ListRepo:
-    items = [
-        _agent("chatbot", backend_id="ChatbotAgent"),
-        _agent("worker", backend_id="SubAgentBackend", is_subagent=True),
-    ]
-    include_subagents_calls: list[bool] = []
-
-    def __init__(self, _db):
-        pass
-
-    async def ensure_default_agent(self):
-        return self.items[0]
-
-    async def list_visible(self, *, user, include_subagents: bool = False):
-        del user
-        self.include_subagents_calls.append(include_subagents)
-        if include_subagents:
-            return self.items
-        return [item for item in self.items if not item.is_subagent]
-
-    async def serialize(self, item, **_kwargs):
-        return dict(item.__dict__)
-
-
-class _CreateRepo(_ListRepo):
-    created_payload = None
-
-    async def create(self, **kwargs):
-        type(self).created_payload = kwargs
-        return _agent(kwargs["slug"], backend_id=kwargs["backend_id"], is_subagent=kwargs["is_subagent"])
-
-
-class _RejectingCreateRepo(_ListRepo):
-    async def create(self, **_kwargs):
-        raise ValueError("SubAgentBackend 与 is_subagent 必须保持一致")
-
-
-def _build_app(monkeypatch, repo_cls, *, role: str = "admin") -> TestClient:
-    monkeypatch.setattr(agent_router_module, "agent_manager", _FakeAgentManager())
-    monkeypatch.setattr(agent_router_module, "AgentRepository", repo_cls)
-
+def _build_app() -> FastAPI:
     app = FastAPI()
-    app.include_router(agent_router_module.agent_router, prefix="/api")
+    app.include_router(subagents_router, prefix="/api")
 
     async def fake_db():
         return None
 
-    async def fake_user():
-        return _user(role)
+    async def fake_admin_user():
+        return User(
+            username="admin",
+            user_id="admin",
+            password_hash="x",
+            role="admin",
+        )
 
     app.dependency_overrides[get_db] = fake_db
-    app.dependency_overrides[get_required_user] = fake_user
-    app.dependency_overrides[get_admin_user] = fake_user
-    return TestClient(app)
+    app.dependency_overrides[get_admin_user] = fake_admin_user
+    return app
 
 
-def test_agent_list_excludes_subagents_by_default(monkeypatch):
-    _ListRepo.include_subagents_calls = []
-    client = _build_app(monkeypatch, _ListRepo)
+def test_list_subagents_returns_data(monkeypatch):
+    async def fake_get_all_subagents(_db):
+        return [
+            {
+                "name": "research-agent",
+                "description": "Test research agent",
+                "system_prompt": "You are a researcher",
+                "tools": ["tavily_search"],
+                "model": None,
+                "enabled": True,
+                "is_builtin": True,
+                "created_by": "system",
+                "updated_by": "system",
+                "created_at": "2024-01-01T00:00:00",
+                "updated_at": "2024-01-01T00:00:00",
+            }
+        ]
 
-    response = client.get("/api/agent")
+    monkeypatch.setattr("server.routers.subagent_router.service.get_all_subagents", fake_get_all_subagents)
 
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert [agent["slug"] for agent in payload["agents"]] == ["chatbot"]
-    assert _ListRepo.include_subagents_calls == [False]
-
-
-def test_agent_management_list_can_include_subagents(monkeypatch):
-    _ListRepo.include_subagents_calls = []
-    client = _build_app(monkeypatch, _ListRepo)
-
-    response = client.get("/api/agent?include_subagents=true")
-
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert [agent["slug"] for agent in payload["agents"]] == ["chatbot", "worker"]
-    assert payload["agents"][1]["is_subagent"] is True
-    assert _ListRepo.include_subagents_calls == [True]
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.get("/api/system/subagents")
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"][0]["name"] == "research-agent"
+    assert payload["data"][0]["is_builtin"] is True
 
 
-def test_normal_user_can_create_agent(monkeypatch):
-    _CreateRepo.created_payload = None
-    client = _build_app(monkeypatch, _CreateRepo, role="user")
+def test_get_single_subagent(monkeypatch):
+    async def fake_get_subagent(name, db=None):
+        if name == "research-agent":
+            return {
+                "name": "research-agent",
+                "description": "Test research agent",
+                "system_prompt": "You are a researcher",
+                "tools": ["tavily_search"],
+                "model": None,
+                "enabled": True,
+                "is_builtin": True,
+                "created_by": "system",
+                "updated_by": "system",
+                "created_at": "2024-01-01T00:00:00",
+                "updated_at": "2024-01-01T00:00:00",
+            }
+        return None
 
-    response = client.post(
-        "/api/agent",
+    monkeypatch.setattr("server.routers.subagent_router.service.get_subagent", fake_get_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.get("/api/system/subagents/research-agent")
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"]["name"] == "research-agent"
+
+
+def test_get_single_subagent_not_found(monkeypatch):
+    async def fake_get_subagent(name, db=None):
+        return None
+
+    monkeypatch.setattr("server.routers.subagent_router.service.get_subagent", fake_get_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.get("/api/system/subagents/nonexistent")
+    assert resp.status_code == 404, resp.text
+
+
+def test_create_subagent(monkeypatch):
+    captured = {}
+
+    async def fake_create_subagent(data, created_by, db=None):
+        captured["data"] = data
+        captured["created_by"] = created_by
+        return {
+            "name": data["name"],
+            "description": data["description"],
+            "system_prompt": data["system_prompt"],
+            "tools": data.get("tools", []),
+            "model": data.get("model"),
+            "enabled": True,
+            "is_builtin": False,
+            "created_by": created_by,
+            "updated_by": created_by,
+            "created_at": "2024-01-01T00:00:00",
+            "updated_at": "2024-01-01T00:00:00",
+        }
+
+    monkeypatch.setattr("server.routers.subagent_router.service.create_subagent", fake_create_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/system/subagents",
         json={
-            "name": "Personal Bot",
-            "slug": "personal-bot",
-            "backend_id": "ChatbotAgent",
-            "share_config": {"access_level": "global", "department_ids": [], "user_uids": []},
+            "name": "my-agent",
+            "description": "My custom agent",
+            "system_prompt": "You are a helpful assistant",
+            "tools": ["tool_a", "tool_b"],
+            "model": None,
         },
     )
-
-    assert response.status_code == 200, response.text
-    assert _CreateRepo.created_payload["creator"].uid == "user"
-    assert _CreateRepo.created_payload["creator"].role == "user"
-    assert _CreateRepo.created_payload["share_config"] == {
-        "access_level": "global",
-        "department_ids": [],
-        "user_uids": [],
-    }
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert captured["data"]["name"] == "my-agent"
+    assert captured["created_by"] == "admin"
 
 
-def test_create_subagent_backend_agent_sets_subagent_flag(monkeypatch):
-    _CreateRepo.created_payload = None
-    client = _build_app(monkeypatch, _CreateRepo)
+def test_create_subagent_duplicate_returns_409(monkeypatch):
+    async def fake_create_subagent(data, created_by, db=None):
+        raise IntegrityError(
+            "duplicate",
+            {},
+            Exception('duplicate key value violates unique constraint "subagents_pkey"'),
+        )
 
-    response = client.post(
-        "/api/agent",
+    monkeypatch.setattr("server.routers.subagent_router.service.create_subagent", fake_create_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/system/subagents",
         json={
-            "name": "Worker",
-            "slug": "worker",
-            "backend_id": "SubAgentBackend",
-            "is_subagent": True,
+            "name": "my-agent",
+            "description": "My custom agent",
+            "system_prompt": "You are a helpful assistant",
+            "tools": [],
+            "model": None,
         },
     )
-
-    assert response.status_code == 200, response.text
-    assert _CreateRepo.created_payload["backend_id"] == "SubAgentBackend"
-    assert _CreateRepo.created_payload["is_subagent"] is True
-    assert response.json()["agent"]["is_subagent"] is True
+    assert resp.status_code == 409, resp.text
 
 
-def test_create_subagent_backend_rejects_mismatched_flag(monkeypatch):
-    client = _build_app(monkeypatch, _RejectingCreateRepo)
+def test_update_subagent(monkeypatch):
+    captured = {}
 
-    response = client.post(
-        "/api/agent",
+    async def fake_update_subagent(name, data, updated_by, db=None):
+        captured["name"] = name
+        captured["data"] = data
+        captured["updated_by"] = updated_by
+        return {
+            "name": name,
+            "description": data.get("description", "Updated description"),
+            "system_prompt": data.get("system_prompt", "Updated prompt"),
+            "tools": data.get("tools", []),
+            "model": data.get("model"),
+            "enabled": True,
+            "is_builtin": False,
+            "created_by": "admin",
+            "updated_by": updated_by,
+            "created_at": "2024-01-01T00:00:00",
+            "updated_at": "2024-01-01T00:00:00",
+        }
+
+    monkeypatch.setattr("server.routers.subagent_router.service.update_subagent", fake_update_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.put(
+        "/api/system/subagents/my-agent",
         json={
-            "name": "Worker",
-            "slug": "worker",
-            "backend_id": "SubAgentBackend",
-            "is_subagent": False,
+            "description": "Updated description",
+            "system_prompt": "Updated prompt",
         },
     )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert captured["name"] == "my-agent"
+    assert captured["updated_by"] == "admin"
 
-    assert response.status_code == 422
-    assert "is_subagent" in response.json()["detail"]
+
+def test_update_builtin_subagent_fails(monkeypatch):
+    async def fake_update_subagent(name, data, updated_by, db=None):
+        raise ValueError("内置 SubAgent 不可编辑")
+
+    monkeypatch.setattr("server.routers.subagent_router.service.update_subagent", fake_update_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.put(
+        "/api/system/subagents/research-agent",
+        json={"description": "Try to update builtin"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_delete_subagent(monkeypatch):
+    deleted_name = {"name": None}
+
+    async def fake_delete_subagent(name, db=None):
+        deleted_name["name"] = name
+        return True
+
+    monkeypatch.setattr("server.routers.subagent_router.service.delete_subagent", fake_delete_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.delete("/api/system/subagents/my-agent")
+    assert resp.status_code == 200, resp.text
+    assert deleted_name["name"] == "my-agent"
+
+
+def test_delete_builtin_subagent_fails(monkeypatch):
+    async def fake_delete_subagent(name, db=None):
+        raise ValueError("内置 SubAgent 不可删除")
+
+    monkeypatch.setattr("server.routers.subagent_router.service.delete_subagent", fake_delete_subagent)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.delete("/api/system/subagents/research-agent")
+    assert resp.status_code == 400, resp.text
+
+
+def test_update_subagent_status(monkeypatch):
+    captured = {}
+
+    async def fake_set_subagent_enabled(name, enabled, updated_by, db=None):
+        captured["name"] = name
+        captured["enabled"] = enabled
+        captured["updated_by"] = updated_by
+        return {
+            "name": name,
+            "description": "Test",
+            "system_prompt": "Prompt",
+            "tools": [],
+            "model": None,
+            "enabled": enabled,
+            "is_builtin": True,
+            "created_by": "system",
+            "updated_by": updated_by,
+            "created_at": "2024-01-01T00:00:00",
+            "updated_at": "2024-01-01T00:00:00",
+        }
+
+    monkeypatch.setattr("server.routers.subagent_router.service.set_subagent_enabled", fake_set_subagent_enabled)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.put("/api/system/subagents/research-agent/status", json={"enabled": False})
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["data"]["enabled"] is False
+    assert captured == {"name": "research-agent", "enabled": False, "updated_by": "admin"}
+
+
+def test_update_subagent_status_not_found(monkeypatch):
+    async def fake_set_subagent_enabled(name, enabled, updated_by, db=None):
+        return None
+
+    monkeypatch.setattr("server.routers.subagent_router.service.set_subagent_enabled", fake_set_subagent_enabled)
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.put("/api/system/subagents/missing/status", json={"enabled": True})
+    assert resp.status_code == 404, resp.text
+
+
+# =============================================================================
+# Repository Tests
+# =============================================================================
+
+class TestSubAgentRepository:
+    @pytest.mark.asyncio
+    async def test_list_all(self):
+        from yuxi.repositories.subagent_repository import SubAgentRepository
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [
+            SubAgent(
+                name="test-agent",
+                description="Test agent",
+                system_prompt="You are a test",
+                tools=["tool_a"],
+                model=None,
+                is_builtin=False,
+                created_by="admin",
+                updated_by="admin",
+                created_at=utc_now_naive(),
+                updated_at=utc_now_naive(),
+            )
+        ]
+        mock_db.execute.return_value = mock_result
+
+        repo = SubAgentRepository(mock_db)
+        result = await repo.list_all()
+
+        assert len(result) == 1
+        assert result[0].name == "test-agent"
+        mock_db.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_by_name_found(self):
+        from yuxi.repositories.subagent_repository import SubAgentRepository
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = SubAgent(
+            name="test-agent",
+            description="Test agent",
+            system_prompt="You are a test",
+            tools=[],
+            model=None,
+            is_builtin=False,
+            created_by="admin",
+            updated_by="admin",
+            created_at=utc_now_naive(),
+            updated_at=utc_now_naive(),
+        )
+        mock_db.execute.return_value = mock_result
+
+        repo = SubAgentRepository(mock_db)
+        result = await repo.get_by_name("test-agent")
+
+        assert result is not None
+        assert result.name == "test-agent"
+
+    @pytest.mark.asyncio
+    async def test_get_by_name_not_found(self):
+        from yuxi.repositories.subagent_repository import SubAgentRepository
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        repo = SubAgentRepository(mock_db)
+        result = await repo.get_by_name("nonexistent")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_update_can_clear_model_when_provided(self):
+        from yuxi.repositories.subagent_repository import SubAgentRepository
+
+        mock_db = AsyncMock()
+        repo = SubAgentRepository(mock_db)
+        item = SubAgent(
+            name="test-agent",
+            description="Test agent",
+            system_prompt="You are a test",
+            tools=[],
+            model="gpt-4",
+            is_builtin=False,
+            created_by="admin",
+            updated_by="admin",
+            created_at=utc_now_naive(),
+            updated_at=utc_now_naive(),
+        )
+
+        await repo.update(
+            item,
+            description=None,
+            system_prompt=None,
+            tools=None,
+            model=None,
+            model_provided=True,
+            updated_by="admin",
+        )
+
+        assert item.model is None
+
+
+# =============================================================================
+# Service Tests
+# =============================================================================
+
+class TestSubAgentService:
+    @pytest.mark.asyncio
+    async def test_init_builtin_subagents_creates_agents(self, monkeypatch):
+        from yuxi.services import subagent_service as service_module
+
+        created_agents = []
+
+        class MockRepo:
+            def __init__(self, session):
+                pass
+
+            async def get_by_name(self, name):
+                return None
+
+            async def create(self, **kwargs):
+                created_agents.append(kwargs)
+                return MagicMock()
+
+        @asynccontextmanager
+        async def mock_session_context(*args, **kwargs):
+            session = MagicMock()
+            session.commit = MagicMock()
+
+            async def _commit():
+                return None
+
+            session.commit = _commit
+            yield session
+
+        class MockPgManager:
+            get_async_session_context = mock_session_context
+
+        monkeypatch.setattr(service_module, "SubAgentRepository", MockRepo)
+        monkeypatch.setattr(service_module, "pg_manager", MockPgManager())
+
+        await service_module.init_builtin_subagents()
+
+        assert len(created_agents) == 2
+        agent_names = [a["name"] for a in created_agents]
+        assert "research-agent" in agent_names
+        assert "critique-agent" in agent_names
+
+    @pytest.mark.asyncio
+    async def test_get_subagent_specs_returns_list(self, monkeypatch):
+        from yuxi.services import subagent_service as service_module
+
+        mock_spec = {
+            "name": "test-agent",
+            "description": "Test",
+            "system_prompt": "You are a test",
+            "tools": ["tool_a"],
+        }
+
+        class MockRepo:
+            def __init__(self, session):
+                pass
+
+            async def list_all_specs(self):
+                return [mock_spec]
+
+        @asynccontextmanager
+        async def mock_session_context(*args, **kwargs):
+            yield MagicMock()
+
+        class MockPgManager:
+            get_async_session_context = mock_session_context
+
+        monkeypatch.setattr(service_module, "SubAgentRepository", MockRepo)
+        monkeypatch.setattr(service_module, "pg_manager", MockPgManager())
+
+        result = await service_module.get_subagent_specs()
+
+        assert len(result) == 1
+        assert result[0]["name"] == "test-agent"
+
+    @pytest.mark.asyncio
+    async def test_get_subagent_specs_returns_defensive_copy(self, monkeypatch):
+        from yuxi.services import subagent_service as service_module
+
+        service_module._subagent_specs_cache = [
+            {
+                "name": "test-agent",
+                "description": "Test",
+                "system_prompt": "You are a test",
+                "tools": ["tool_a"],
+            }
+        ]
+
+        first = await service_module.get_subagent_specs()
+        first[0]["tools"].append("tool_b")
+        second = await service_module.get_subagent_specs()
+
+        assert second[0]["tools"] == ["tool_a"]
+        service_module.clear_specs_cache()
+
+# =============================================================================
+# Model Tests
+# =============================================================================
+
+class TestSubAgentModel:
+    def test_to_dict(self):
+        now = utc_now_naive()
+        agent = SubAgent(
+            name="test-agent",
+            description="Test agent",
+            system_prompt="You are a test",
+            tools=["tool_a", "tool_b"],
+            model="gpt-4",
+            is_builtin=False,
+            created_by="admin",
+            updated_by="admin",
+            created_at=now,
+            updated_at=now,
+        )
+
+        result = agent.to_dict()
+
+        assert result["name"] == "test-agent"
+        assert result["description"] == "Test agent"
+        assert result["system_prompt"] == "You are a test"
+        assert result["tools"] == ["tool_a", "tool_b"]
+        assert result["model"] == "gpt-4"
+        assert result["is_builtin"] is False
+        assert result["created_by"] == "admin"
+
+    def test_to_subagent_spec(self):
+        agent = SubAgent(
+            name="test-agent",
+            description="Test agent",
+            system_prompt="You are a test",
+            tools=["tool_a"],
+            model="gpt-4",
+            is_builtin=False,
+            created_by="admin",
+            updated_by="admin",
+            created_at=utc_now_naive(),
+            updated_at=utc_now_naive(),
+        )
+
+        spec = agent.to_subagent_spec()
+
+        assert spec["name"] == "test-agent"
+        assert spec["description"] == "Test agent"
+        assert spec["system_prompt"] == "You are a test"
+        assert spec["tools"] == ["tool_a"]
+        assert spec["model"] == "gpt-4"
+
+    def test_to_subagent_spec_no_model(self):
+        agent = SubAgent(
+            name="test-agent",
+            description="Test agent",
+            system_prompt="You are a test",
+            tools=[],
+            model=None,
+            is_builtin=False,
+            created_by="admin",
+            updated_by="admin",
+            created_at=utc_now_naive(),
+            updated_at=utc_now_naive(),
+        )
+
+        spec = agent.to_subagent_spec()
+
+        assert "model" not in spec
+
+
+class TestDeepAgentSubagentSelection:
+    @pytest.mark.asyncio
+    async def test_get_subagents_from_names_filters_and_resolves_tools(self, monkeypatch):
+        from yuxi.services import subagent_service as service_module
+
+        async def fake_get_specs(_db=None):
+            return [
+                {
+                    "name": "research-agent",
+                    "description": "r",
+                    "system_prompt": "s",
+                    "tools": ["tool_a"],
+                },
+                {
+                    "name": "critique-agent",
+                    "description": "c",
+                    "system_prompt": "s",
+                    "tools": [],
+                },
+            ]
+
+        mock_tool = MagicMock()
+        mock_tool.name = "tool_a"
+
+        monkeypatch.setattr(service_module, "get_subagent_specs", fake_get_specs)
+        monkeypatch.setattr("yuxi.agents.toolkits.get_all_tool_instances", lambda: [mock_tool])
+
+        resolved_specs = await service_module.get_subagents_from_names(["research-agent", "missing-agent"])
+
+        assert [item["name"] for item in resolved_specs] == ["research-agent"]
+        assert resolved_specs[0]["tools"] == [mock_tool]

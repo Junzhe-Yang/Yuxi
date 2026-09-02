@@ -35,63 +35,40 @@ def _thread_root_dir(thread_id: str) -> Path:
     return Path(conf.save_dir) / "threads" / safe_thread_id / "user-data"
 
 
-def _validate_uid(uid: str) -> str:
-    value = str(uid or "").strip()
+def _validate_user_id(user_id: str) -> str:
+    value = str(user_id or "").strip()
     if not value:
-        raise ValueError("uid is required")
+        raise ValueError("user_id is required")
     if not _SAFE_ID_RE.match(value):
-        raise ValueError("uid contains invalid characters")
+        raise ValueError("user_id contains invalid characters")
     return value
 
 
-def _global_user_data_dir(uid: str) -> Path:
+def _global_user_data_dir(user_id: str) -> Path:
     """Return the shared host-side directory used for one user's workspace files."""
-    safe_uid = _validate_uid(uid)
-    return Path(conf.save_dir) / "threads" / "shared" / safe_uid
+    safe_user_id = _validate_user_id(user_id)
+    return Path(conf.save_dir) / "threads" / "shared" / safe_user_id
 
 
 def sandbox_user_data_dir(thread_id: str) -> Path:
     return _thread_root_dir(thread_id)
 
 
-def sandbox_workspace_dir(thread_id: str, uid: str) -> Path:
+def sandbox_workspace_dir(thread_id: str, user_id: str) -> Path:
     validate_thread_id(thread_id)
-    return _global_user_data_dir(uid) / WORKSPACE_DIR_NAME
+    return _global_user_data_dir(user_id) / WORKSPACE_DIR_NAME
 
 
-def sandbox_workspace_agents_prompt_file(thread_id: str, uid: str) -> Path:
-    return sandbox_workspace_dir(thread_id, uid) / WORKSPACE_AGENTS_DIR_NAME / WORKSPACE_AGENTS_PROMPT_FILE_NAME
-
-
-def _threads_root_dir() -> Path:
-    return (Path(conf.save_dir) / "threads").resolve(strict=False)
-
-
-def _resolve_threads_child_path(path: Path) -> Path:
-    root = _threads_root_dir()
-    resolved = path.resolve(strict=False)
-    if not resolved.is_relative_to(root):
-        raise ValueError("path resolved outside threads root")
-    return resolved
-
-
-def _chmod_writable(path: Path, *, dir: bool = False) -> None:
-    safe_path = _resolve_threads_child_path(path)
-    mode = 0o777 if dir else 0o666
-    try:
-        safe_path.chmod(mode)
-    except OSError:
-        pass
+def sandbox_workspace_agents_prompt_file(thread_id: str, user_id: str) -> Path:
+    return sandbox_workspace_dir(thread_id, user_id) / WORKSPACE_AGENTS_DIR_NAME / WORKSPACE_AGENTS_PROMPT_FILE_NAME
 
 
 def ensure_workspace_default_files(workspace_dir: Path) -> None:
-    workspace_dir = _resolve_threads_child_path(workspace_dir)
     agents_dir = workspace_dir / WORKSPACE_AGENTS_DIR_NAME
     agents_file = agents_dir / WORKSPACE_AGENTS_PROMPT_FILE_NAME
 
     try:
         agents_dir.mkdir(parents=True, exist_ok=True)
-        _chmod_writable(agents_dir, dir=True)
     except FileExistsError:
         logger.warning("工作区默认 Agents 目录创建失败：路径已被文件占用")
         return
@@ -102,7 +79,6 @@ def ensure_workspace_default_files(workspace_dir: Path) -> None:
     try:
         with agents_file.open("xb"):
             pass
-        _chmod_writable(agents_file)
     except FileExistsError:
         if agents_file.is_dir():
             logger.warning("工作区默认 AGENTS.md 创建失败：路径已被目录占用")
@@ -118,16 +94,16 @@ def sandbox_outputs_dir(thread_id: str) -> Path:
     return _thread_root_dir(thread_id) / OUTPUTS_DIR_NAME
 
 
-def ensure_thread_dirs(thread_id: str, uid: str) -> None:
-    _resolve_threads_child_path(_global_user_data_dir(uid)).mkdir(parents=True, exist_ok=True)
-    workspace_dir = _resolve_threads_child_path(sandbox_workspace_dir(thread_id, uid))
+def ensure_thread_dirs(thread_id: str, user_id: str) -> None:
+    _global_user_data_dir(user_id).mkdir(parents=True, exist_ok=True)
+    workspace_dir = sandbox_workspace_dir(thread_id, user_id)
     workspace_dir.mkdir(parents=True, exist_ok=True)
     ensure_workspace_default_files(workspace_dir)
-    _resolve_threads_child_path(sandbox_uploads_dir(thread_id)).mkdir(parents=True, exist_ok=True)
-    _resolve_threads_child_path(sandbox_outputs_dir(thread_id)).mkdir(parents=True, exist_ok=True)
+    sandbox_uploads_dir(thread_id).mkdir(parents=True, exist_ok=True)
+    sandbox_outputs_dir(thread_id).mkdir(parents=True, exist_ok=True)
 
 
-def _resolve_user_data_base_dir(thread_id: str, uid: str, relative_path: str) -> tuple[Path, Path]:
+def _resolve_user_data_base_dir(thread_id: str, user_id: str, relative_path: str) -> tuple[Path, Path]:
     """Map a virtual user-data path to the correct host-side base directory."""
     parts = Path(relative_path).parts
     if not parts:
@@ -137,7 +113,7 @@ def _resolve_user_data_base_dir(thread_id: str, uid: str, relative_path: str) ->
     namespace = parts[0]
     if namespace == WORKSPACE_DIR_NAME:
         # Workspace is shared across one user's threads, so it lives outside the per-thread root.
-        base_dir = sandbox_workspace_dir(thread_id, uid)
+        base_dir = sandbox_workspace_dir(thread_id, user_id)
         target_path = base_dir.joinpath(*parts[1:]) if len(parts) > 1 else base_dir
         return base_dir.resolve(), target_path.resolve()
     if namespace == UPLOADS_DIR_NAME:
@@ -153,7 +129,7 @@ def _resolve_user_data_base_dir(thread_id: str, uid: str, relative_path: str) ->
     return base_dir.resolve(), (base_dir / relative_path).resolve()
 
 
-def resolve_virtual_path(thread_id: str, virtual_path: str, *, uid: str) -> Path:
+def resolve_virtual_path(thread_id: str, virtual_path: str, *, user_id: str) -> Path:
     clean_virtual_path = "/" + str(virtual_path or "").strip().lstrip("/")
     virtual_prefix = get_virtual_path_prefix()
 
@@ -161,7 +137,7 @@ def resolve_virtual_path(thread_id: str, virtual_path: str, *, uid: str) -> Path
         raise ValueError(f"path must start with {virtual_prefix}")
 
     relative_path = clean_virtual_path[len(virtual_prefix) :].lstrip("/")
-    base_dir, target_path = _resolve_user_data_base_dir(thread_id, uid, relative_path)
+    base_dir, target_path = _resolve_user_data_base_dir(thread_id, user_id, relative_path)
 
     try:
         target_path.relative_to(base_dir)
@@ -171,10 +147,10 @@ def resolve_virtual_path(thread_id: str, virtual_path: str, *, uid: str) -> Path
     return target_path
 
 
-def virtual_path_for_thread_file(thread_id: str, path: str | Path, *, uid: str) -> str:
+def virtual_path_for_thread_file(thread_id: str, path: str | Path, *, user_id: str) -> str:
     target_path = Path(path).resolve()
     thread_root = sandbox_user_data_dir(thread_id).resolve()
-    global_workspace_root = sandbox_workspace_dir(thread_id, uid).resolve()
+    global_workspace_root = sandbox_workspace_dir(thread_id, user_id).resolve()
 
     try:
         relative_path = target_path.relative_to(global_workspace_root)

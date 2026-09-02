@@ -1,21 +1,26 @@
-"""知识库工具模块。"""
+"""知识库工具模块
+
+包含知识库相关的工具函数：
+- kb_utils: 知识库通用工具函数
+- indexing: 文件处理和索引相关功能
+"""
 
 from .kb_utils import (
     calculate_content_hash,
-    is_minio_url,
+    get_embedding_config,
     merge_processing_params,
-    parse_minio_url,
     prepare_item_metadata,
-    resolve_processing_params,
     sanitize_processing_params,
+    split_text_into_chunks,
+    validate_file_path,
 )
 
 __all__ = [
     "calculate_content_hash",
-    "is_minio_url",
-    "merge_processing_params",
-    "parse_minio_url",
+    "get_embedding_config",
     "prepare_item_metadata",
-    "resolve_processing_params",
     "sanitize_processing_params",
+    "split_text_into_chunks",
+    "merge_processing_params",
+    "validate_file_path",
 ]

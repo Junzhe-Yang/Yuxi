@@ -22,9 +22,7 @@
               <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" class="icon cancelled" />
               <QuestionCircleOutlined v-else class="icon unknown" />
             </div>
-            <span class="todo-text" :title="formatTodoNameTitle(todo.content)">
-              {{ formatTodoName(todo.content) }}
-            </span>
+            <span class="todo-text">{{ todo.content }}</span>
           </div>
         </div>
         <div v-if="todoListData(resultContent).length === 0" class="no-results">
@@ -53,16 +51,6 @@ const props = defineProps({
   }
 })
 
-const TODO_NAME_MAX_LENGTH = 20
-
-const formatTodoName = (content) => {
-  return Array.from(String(content || ''))
-    .slice(0, TODO_NAME_MAX_LENGTH)
-    .join('')
-}
-
-const formatTodoNameTitle = (content) => String(content || '')
-
 const query = computed(() => {
   // 1. Try to get status from result content (Priority)
   const content = props.toolCall.tool_call_result?.content
@@ -71,15 +59,15 @@ const query = computed(() => {
     if (list && list.length > 0) {
       // 1. In Progress
       const inProgress = list.find((item) => item.status === 'in_progress')
-      if (inProgress) return `进行中: ${formatTodoName(inProgress.content)}`
+      if (inProgress) return `进行中: ${inProgress.content}`
 
       // 2. Pending
       const pending = list.find((item) => item.status === 'pending')
-      if (pending) return `待处理: ${formatTodoName(pending.content)}`
+      if (pending) return `待处理: ${pending.content}`
 
       // 3. Last item fallback
       const last = list[list.length - 1]
-      return `更新: ${formatTodoName(last.content)}`
+      return `更新: ${last.content}`
     }
   }
 

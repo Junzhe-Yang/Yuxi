@@ -30,10 +30,12 @@ class MessageFeedbackRepository:
             session.add(feedback)
         return feedback
 
-    async def exists_by_message_and_user(self, message_id: int, uid: str) -> bool:
+    async def exists_by_message_and_user(self, message_id: int, user_id: str) -> bool:
         """检查用户是否已对消息反馈"""
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(
-                select(MessageFeedback.id).where(MessageFeedback.message_id == message_id, MessageFeedback.uid == uid)
+                select(MessageFeedback.id).where(
+                    MessageFeedback.message_id == message_id, MessageFeedback.user_id == user_id
+                )
             )
             return result.scalar_one_or_none() is not None

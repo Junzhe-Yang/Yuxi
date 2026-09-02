@@ -1,4 +1,8 @@
-"""Provider DB runtime selector connectivity tests."""
+"""Provider DB runtime selector connectivity tests.
+
+These tests intentionally exercise the new provider service path instead of the legacy
+``config.static.models`` registry. They are opt-in because they call external model APIs.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +11,11 @@ from typing import Any
 
 import pytest
 
-from yuxi.models.chat import select_model
-from yuxi.models.embed import OtherEmbedding
+from yuxi.models.chat import OpenAIBase
+from yuxi.models.embed import OllamaEmbedding, OtherEmbedding
 from yuxi.models.rerank import DashscopeReranker, OpenAIReranker
-from yuxi.models.providers.cache import ModelInfo
-from yuxi.models.providers.service import (
-    resolve_api_key,
+from yuxi.services.model_provider_service import (
+    _resolve_api_key,
     ensure_builtin_model_providers_in_db,
     get_model_provider_by_id,
 )
@@ -31,7 +34,7 @@ pytestmark = [
 
 def _model_spec(provider: ModelProvider, model: dict[str, Any]) -> dict[str, Any]:
     """Turn an enabled model item into runtime parameters for existing model clients."""
-    api_key = resolve_api_key(provider)
+    api_key = _resolve_api_key(provider)
     if api_key is None:
         api_key = "no_api_key"
     return {
@@ -84,28 +87,15 @@ async def _load_provider() -> ModelProvider:
         return provider
 
 
-async def test_provider_db_chat_model_connectivity(monkeypatch: pytest.MonkeyPatch):
+async def test_provider_db_chat_model_connectivity():
     provider = await _load_provider()
     spec = _select_provider_model(provider, "chat", "TEST_PROVIDER_CHAT_MODEL")
-    model_spec = f"{spec['provider_id']}:{spec['model_id']}"
-    info = ModelInfo(
-        provider_id=spec["provider_id"],
-        model_id=spec["model_id"],
-        model_type="chat",
-        display_name=spec["model_id"],
+
+    model = OpenAIBase(
         api_key=spec["api_key"],
         base_url=spec["base_url"],
-        provider_type=provider.provider_type,
-        extra={"parameters": spec["parameters"]},
+        model_name=spec["model_id"],
     )
-
-    def get_model_info(current: str):
-        return info if current == model_spec else None
-
-    monkeypatch.setattr("yuxi.models.chat.model_cache.get_model_info", get_model_info)
-    monkeypatch.setattr("yuxi.agents.models.model_cache.get_model_info", get_model_info)
-
-    model = select_model(model_spec, model_params=spec["parameters"])
     response = await model.call([{"role": "user", "content": "Say 1"}], stream=False)
 
     assert response.content
@@ -115,7 +105,8 @@ async def test_provider_db_embedding_model_connectivity():
     provider = await _load_provider()
     spec = _select_provider_model(provider, "embedding", "TEST_PROVIDER_EMBEDDING_MODEL")
 
-    model = OtherEmbedding(
+    embed_class = OllamaEmbedding if provider.provider_id.startswith("ollama") else OtherEmbedding
+    model = embed_class(
         name=spec["model_id"],
         dimension=spec["dimension"],
         base_url=spec["base_url"],

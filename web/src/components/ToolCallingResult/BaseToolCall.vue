@@ -5,16 +5,22 @@
   >
     <!-- Header Slot -->
     <div class="tool-header" @click="toggleExpand">
+      <!-- Slot for completely overriding header (not recommended based on new requirement but kept for backward compat if needed, or remove if strict) -->
+      <!-- Actually, the requirement says "tool call 的 header 也要有 slot", but "ICON 保留".
+           So we should probably not use a single "header" slot that replaces everything.
+           Instead, we structure it: Icon + Content + ExpandIcon.
+      -->
+
       <!-- Fixed Status Icon -->
-      <span v-if="effectiveStatus === 'completed'">
-        <component v-if="toolIcon" :is="toolIcon" size="15" class="tool-loader tool-success" />
-        <CheckCircle v-else size="15" class="tool-loader tool-success" />
+      <span v-if="toolCall.status === 'success' || toolCall.tool_call_result">
+        <component v-if="toolIcon" :is="toolIcon" size="16" class="tool-loader tool-success" />
+        <CheckCircle v-else size="16" class="tool-loader tool-success" />
       </span>
-      <span v-else-if="effectiveStatus === 'error'">
-        <XCircle size="15" class="tool-loader tool-error" />
+      <span v-else-if="toolCall.status === 'error'">
+        <XCircle size="16" class="tool-loader tool-error" />
       </span>
       <span v-else>
-        <Loader size="15" class="tool-loader rotate tool-loading" />
+        <Loader size="16" class="tool-loader rotate tool-loading" />
       </span>
 
       <!-- Content Area with Slots -->
@@ -71,7 +77,7 @@
       </div>
 
       <!-- Result Slot -->
-      <div class="tool-result" style="opacity: 0.8" v-if="hasResult || forceShowResult">
+      <div class="tool-result" style="opacity: 0.8" v-if="hasResult">
         <slot name="result" :tool-call="toolCall" :result-content="resultContent">
           <div class="tool-result-content" :data-tool-call-id="toolCall.id">
             <!-- Default rendering -->
@@ -112,16 +118,6 @@ const props = defineProps({
   appearance: {
     type: String,
     default: 'card'
-  },
-  // 外部可覆盖状态以驱动图标：'running' | 'completed' | 'failed'（用于结果不随流式返回的工具，如 task）
-  status: {
-    type: String,
-    default: ''
-  },
-  // 即使没有 tool_call_result 也展示结果区（配合外部提供的结果内容，如 task 的 result_preview）
-  forceShowResult: {
-    type: Boolean,
-    default: false
   }
 })
 
@@ -134,14 +130,6 @@ const isTimeline = computed(() => props.appearance === 'timeline')
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
-
-// 图标状态：优先用外部传入的 status，否则按 tool_call_result/status 推断
-const effectiveStatus = computed(() => {
-  if (props.status) return props.status
-  if (props.toolCall.status === 'success' || props.toolCall.tool_call_result) return 'completed'
-  if (props.toolCall.status === 'error') return 'failed'
-  return 'running'
-})
 
 // Tool Name Logic
 const toolId = computed(() => getToolCallId(props.toolCall))
@@ -313,7 +301,7 @@ const formatResultData = (data) => {
         }
 
         .description {
-          color: var(--gray-600);
+          color: var(--gray-500);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -329,7 +317,7 @@ const formatResultData = (data) => {
       :deep(.tag) {
         font-size: 11px;
         color: var(--gray-500);
-        // background-color: var(--gray-50);
+        background-color: var(--gray-50);
         padding: 0px 4px;
         border-radius: 4px;
         margin-left: 8px;
@@ -337,11 +325,11 @@ const formatResultData = (data) => {
 
         &.success {
           color: var(--color-success-500);
-          // background-color: var(--color-success-50);
+          background-color: var(--color-success-50);
         }
         &.error {
           color: var(--color-error-500);
-          // background-color: var(--color-error-50);
+          background-color: var(--color-error-50);
         }
       }
     }
@@ -401,7 +389,7 @@ const formatResultData = (data) => {
       }
 
       .tool-loader {
-        color: var(--gray-600);
+        color: var(--gray-400);
       }
 
       .tool-expand-icon {
@@ -418,10 +406,6 @@ const formatResultData = (data) => {
       margin: 4px 0 8px 8px;
       padding-left: 8px;
       border-left: 1px solid var(--gray-100);
-
-      &:hover {
-        border-left-color: var(--gray-400);
-      }
 
       .tool-params {
         padding: 4px 0 8px;

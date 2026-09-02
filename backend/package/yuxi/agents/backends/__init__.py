@@ -1,14 +1,21 @@
 from deepagents.backends import CompositeBackend, StateBackend
 
-from .composite import create_agent_composite_backend, create_agent_filesystem_middleware
+from .composite import create_agent_composite_backend
 from .knowledge_base_backend import resolve_visible_knowledge_bases_for_context
 from .sandbox import (
+    IDLE_CHECK_INTERVAL,
+    LARGE_TOOL_RESULTS_DIR,
     SKILLS_PATH,
+    THREADS_DIR,
     USER_DATA_PATH,
     VIRTUAL_PATH_PREFIX,
+    LocalContainerBackend,
     ProvisionerSandboxBackend,
-    ProvisionerSandboxProvider,
-    SandboxConnection,
+    RemoteSandboxBackend,
+    SandboxBackend,
+    SandboxInfo,
+    YuxiSandboxBackend,
+    YuxiSandboxProvider,
     get_sandbox_provider,
     init_sandbox_provider,
     resolve_virtual_path,
@@ -27,10 +34,13 @@ __all__ = [
     "StateBackend",
     "SelectedSkillsReadonlyBackend",
     "create_agent_composite_backend",
-    "create_agent_filesystem_middleware",
     "ProvisionerSandboxBackend",
-    "ProvisionerSandboxProvider",
-    "SandboxConnection",
+    "SandboxBackend",
+    "SandboxInfo",
+    "LocalContainerBackend",
+    "RemoteSandboxBackend",
+    "YuxiSandboxBackend",
+    "YuxiSandboxProvider",
     "get_sandbox_provider",
     "init_sandbox_provider",
     "shutdown_sandbox_provider",
@@ -42,8 +52,11 @@ __all__ = [
     "sandbox_workspace_dir",
     "sandbox_uploads_dir",
     "sandbox_outputs_dir",
-    # Config paths
+    # Config constants
     "VIRTUAL_PATH_PREFIX",
     "USER_DATA_PATH",
     "SKILLS_PATH",
+    "LARGE_TOOL_RESULTS_DIR",
+    "THREADS_DIR",
+    "IDLE_CHECK_INTERVAL",
 ]

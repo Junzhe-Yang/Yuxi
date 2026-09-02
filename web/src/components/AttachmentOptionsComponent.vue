@@ -1,12 +1,22 @@
 <template>
   <div class="attachment-options">
-    <div class="option-item" :class="{ disabled: disabled }" @click="handleAttachmentClick">
-      <a-tooltip title="支持任意文件格式 ≤ 5 MB" placement="right">
-        <div class="option-content">
-          <FileText :size="14" class="option-icon" />
-          <span class="option-text">添加附件</span>
-        </div>
-      </a-tooltip>
+    <div class="option-item">
+      <label class="attachment-upload-label" :class="{ disabled: disabled }">
+        <input
+          ref="fileInputRef"
+          type="file"
+          multiple
+          :disabled="disabled"
+          @change="handleFileChange"
+          style="display: none"
+        />
+        <a-tooltip title="支持任意文件格式 ≤ 5 MB" placement="right">
+          <div class="option-content">
+            <FileText :size="14" class="option-icon" />
+            <span class="option-text">添加附件</span>
+          </div>
+        </a-tooltip>
+      </label>
     </div>
 
     <div class="option-item" @click="handleImageUpload">
@@ -21,9 +31,12 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { FileText, Image } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import { multimodalApi } from '@/apis/agent_api'
+
+const fileInputRef = ref(null)
 
 const props = defineProps({
   disabled: {
@@ -34,9 +47,14 @@ const props = defineProps({
 
 const emit = defineEmits(['upload', 'upload-image', 'upload-image-success'])
 
-const handleAttachmentClick = () => {
-  if (props.disabled) return
-  emit('upload')
+// 处理文件选择变化
+const handleFileChange = (event) => {
+  const files = event.target.files
+  if (files && files.length > 0) {
+    emit('upload', Array.from(files))
+  }
+  // 清空文件输入，允许重复选择同一文件
+  event.target.value = ''
 }
 
 // 处理图片上传
@@ -166,5 +184,20 @@ const processImageUpload = async (file) => {
 
 .option-text {
   font-weight: 500;
+}
+
+.attachment-upload-label {
+  display: block;
+  width: 100%;
+  cursor: pointer;
+
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+
+    .option-content {
+      color: var(--gray-400);
+    }
+  }
 }
 </style>

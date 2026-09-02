@@ -1,37 +1,28 @@
 <template>
-  <div v-if="message.type === 'human' && message.image_content" class="message-image">
-    <img
-      :src="`data:${messageImageMimeType};base64,${message.image_content}`"
-      alt="用户上传的图片"
-      @click="
-        openImagePreview(
-          `data:${messageImageMimeType};base64,${message.image_content}`,
-          '用户上传的图片'
-        )
-      "
-    />
-  </div>
   <div
-    class="message-box"
-    :class="[
-      message.type,
-      customClasses,
-      { 'has-attachments': message.type === 'human' && messageAttachments.length }
-    ]"
+    v-if="message.message_type === 'multimodal_image' && message.image_content"
+    class="message-image"
   >
+    <img :src="`data:image/jpeg;base64,${message.image_content}`" alt="用户上传的图片" />
+  </div>
+  <div class="message-box" :class="[message.type, customClasses]">
     <!-- 用户消息 -->
-    <div
-      v-if="message.type === 'human'"
-      class="message-copy-btn human-copy"
-      @click="copyToClipboard(message.content)"
-      :class="{ 'is-copied': isCopied }"
-    >
-      <Check v-if="isCopied" size="14" />
-      <Copy v-else size="14" />
+    <div v-if="message.type === 'human'" class="message-actions">
+      <a-tooltip title="复制">
+        <span
+          class="action-btn"
+          @click="copyToClipboard(message.content)"
+          :class="{ 'is-copied': isCopied }"
+        >
+          <Check v-if="isCopied" size="14" />
+          <Copy v-else size="14" />
+        </span>
+      </a-tooltip>
+      <a-tooltip title="撤销到此">
+        <span class="action-btn" @click="emit('undo', message)"><Undo2 size="14" /></span>
+      </a-tooltip>
     </div>
-    <p v-if="message.type === 'human'" class="message-text">
-      <MentionTextRenderer :content="message.content" :display-labels="mentionDisplayLabels" />
-    </p>
+    <p v-if="message.type === 'human'" class="message-text">{{ message.content }}</p>
 
     <p v-else-if="message.type === 'system'" class="message-text-system">{{ message.content }}</p>
 
@@ -109,58 +100,19 @@
     <!-- 自定义内容 -->
     <slot></slot>
   </div>
-
-  <div
-    v-if="message.type === 'human' && messageAttachments.length"
-    class="human-message-attachments"
-  >
-    <div
-      v-for="attachment in messageAttachments"
-      :key="attachment.fileId"
-      class="message-attachment-file"
-    >
-      <div class="message-attachment-icon">
-        <FileTypeIcon :name="attachment.name" :size="18" />
-      </div>
-      <div class="message-attachment-body">
-        <div class="message-attachment-name" :title="attachment.name">
-          {{ attachment.name }}
-        </div>
-        <div class="message-attachment-meta">{{ attachment.meta }}</div>
-      </div>
-    </div>
-  </div>
-
-  <Teleport to="body">
-    <div
-      v-if="imagePreview.visible"
-      class="message-image-preview-overlay"
-      @click="closeImagePreview"
-    >
-      <button class="message-image-preview-close" title="关闭" @click.stop="closeImagePreview">
-        <X :size="20" />
-      </button>
-      <img :src="imagePreview.src" :alt="imagePreview.alt" class="message-image-preview-img" />
-    </div>
-  </Teleport>
 </template>
 
 <script setup>
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { CaretRightOutlined } from '@ant-design/icons-vue'
 import RefsComponent from '@/components/RefsComponent.vue'
-import { Copy, Check, X } from 'lucide-vue-next'
+import { Copy, Check, Undo2 } from 'lucide-vue-next'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
-import MentionTextRenderer from '@/components/common/MentionTextRenderer.vue'
 import { useAgentStore } from '@/stores/agent'
 import { useInfoStore } from '@/stores/info'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { inferImageMimeTypeFromBase64, normalizeAttachmentPreviews } from '@/utils/file_utils'
-import { buildMentionDisplayLabels } from '@/utils/mention_utils'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { enrichTaskToolCalls } from '@/components/ToolCallingResult/toolRegistry'
 
 const props = defineProps({
   // 消息角色：'user'|'assistant'|'sent'|'received'
@@ -192,10 +144,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  mention: {
-    type: Object,
-    default: () => null
-  },
   // 是否显示调试信息 (已废弃，使用 infoStore.debugMode)
   debugMode: {
     type: Boolean,
@@ -203,31 +151,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['retry', 'retryStoppedMessage', 'openRefs'])
-
-// 图片全屏预览
-const imagePreview = ref({ visible: false, src: '', alt: '' })
-
-const handleImagePreviewKeydown = (e) => {
-  if (e.key === 'Escape') {
-    closeImagePreview()
-  }
-}
-
-const openImagePreview = (src, alt = '') => {
-  if (!src) return
-  imagePreview.value = { visible: true, src, alt }
-  window.addEventListener('keydown', handleImagePreviewKeydown)
-}
-
-const closeImagePreview = () => {
-  imagePreview.value = { visible: false, src: '', alt: '' }
-  window.removeEventListener('keydown', handleImagePreviewKeydown)
-}
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleImagePreviewKeydown)
-})
+const emit = defineEmits(['retry', 'retryStoppedMessage', 'openRefs', 'undo'])
 
 // 复制状态
 const isCopied = ref(false)
@@ -298,15 +222,7 @@ const getErrorMessage = computed(() => {
 const agentStore = useAgentStore()
 const { availableKnowledgeBases } = storeToRefs(agentStore)
 const infoStore = useInfoStore()
-const messageAttachments = computed(() =>
-  normalizeAttachmentPreviews(props.message.extra_metadata?.attachments)
-)
-const messageImageMimeType = computed(
-  () => inferImageMimeTypeFromBase64(props.message.image_content) || 'image/jpeg'
-)
-
-const mentionDisplayLabels = computed(() => buildMentionDisplayLabels(props.mention || {}))
-
+// 提取消息来源
 const messageSources = computed(() => {
   if (props.message.type === 'ai') {
     return MessageProcessor.extractSourcesFromMessage(props.message, availableKnowledgeBases.value)
@@ -314,13 +230,50 @@ const messageSources = computed(() => {
   return { knowledgeChunks: [], webSources: [] }
 })
 
-const validToolCalls = computed(() => enrichTaskToolCalls(props.message.tool_calls))
+// 过滤有效的工具调用
+const validToolCalls = computed(() => {
+  if (!props.message.tool_calls || !Array.isArray(props.message.tool_calls)) {
+    return []
+  }
+
+  return props.message.tool_calls.filter((toolCall) => {
+    // 过滤掉无效的工具调用
+    return (
+      toolCall &&
+      (toolCall.id || toolCall.name || toolCall.function?.name) &&
+      (toolCall.args !== undefined ||
+        toolCall.function?.arguments !== undefined ||
+        toolCall.tool_call_result !== undefined)
+    )
+  })
+})
 
 const parsedData = computed(() => {
-  const { content, reasoningContent } = MessageProcessor.parseAssistantMessageBody(props.message)
+  // Start with default values from the prop to avoid mutation.
+  let content = props.message.content.trim() || ''
+  let reasoning_content = props.message.additional_kwargs?.reasoning_content || ''
+
+  if (reasoning_content) {
+    return {
+      content,
+      reasoning_content
+    }
+  }
+
+  // Regex to find <think>...</think> or an unclosed <think>... at the end of the string.
+  const thinkRegex = /<think>(.*?)<\/think>|<think>(.*?)$/s
+  const thinkMatch = content.match(thinkRegex)
+
+  if (thinkMatch) {
+    // The captured reasoning is in either group 1 (closed tag) or 2 (unclosed tag).
+    reasoning_content = (thinkMatch[1] || thinkMatch[2] || '').trim()
+    // Remove the entire matched <think> block from the original content.
+    content = content.replace(thinkMatch[0], '').trim()
+  }
+
   return {
     content,
-    reasoning_content: reasoningContent
+    reasoning_content
   }
 })
 </script>
@@ -344,12 +297,14 @@ const parsedData = computed(() => {
 
   &.human,
   &.sent {
+    position: relative;
     max-width: 95%;
     color: var(--gray-1000);
     background-color: var(--main-50);
     align-self: flex-end;
     border-radius: 0.5rem;
     padding: 0.5rem 1rem;
+    margin-bottom: 1.8rem;
   }
 
   &.assistant,
@@ -370,39 +325,42 @@ const parsedData = computed(() => {
     white-space: pre-line;
   }
 
-  &.human.has-attachments,
-  &.sent.has-attachments {
-    margin-bottom: 0.375rem;
-  }
-
-  .message-copy-btn {
-    cursor: pointer;
-    color: var(--gray-400);
-    transition: all 0.2s ease;
+  .message-actions {
+    position: absolute;
+    right: 4px;
+    bottom: -28px;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: row;
+    gap: 4px;
     opacity: 0;
-    flex-shrink: 0;
+    transition: opacity 0.2s ease;
+    z-index: 10;
 
-    &:hover {
-      color: var(--main-color);
-    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: var(--gray-50);
+      color: var(--gray-500);
+      cursor: pointer;
+      transition: all 0.15s ease;
 
-    &.is-copied {
-      color: var(--color-success-500);
-      opacity: 1;
-    }
+      &:hover {
+        background: var(--gray-100);
+        color: var(--gray-800);
+      }
 
-    &.human-copy {
-      position: absolute;
-      left: -28px;
-      bottom: 8px;
+      &.is-copied {
+        color: var(--color-success-500);
+      }
     }
   }
 
   &:hover {
-    .message-copy-btn {
+    .message-actions {
       opacity: 1;
     }
   }
@@ -518,62 +476,6 @@ const parsedData = computed(() => {
   }
 }
 
-.human-message-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  align-self: flex-end;
-  max-width: 95%;
-  margin-bottom: 0.8rem;
-}
-
-.message-attachment-file {
-  width: 220px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--gray-200);
-  border-radius: 0.625rem;
-  background: var(--gray-0);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.message-attachment-icon {
-  width: 2rem;
-  height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 0.5rem;
-  color: var(--main-color);
-  background: var(--main-50);
-}
-
-.message-attachment-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.message-attachment-name {
-  overflow: hidden;
-  color: var(--gray-900);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.message-attachment-meta {
-  margin-top: 0.125rem;
-  color: var(--gray-500);
-  font-size: 0.75rem;
-  line-height: 1rem;
-}
-
 .retry-hint {
   margin-top: 8px;
   padding: 8px 16px;
@@ -646,52 +548,10 @@ const parsedData = computed(() => {
     max-width: 100%;
     max-height: 200px;
     object-fit: contain;
-    cursor: pointer;
   }
 }
 
 .message-md {
   margin: 8px 0;
-}
-
-.message-image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  background: rgba(0, 0, 0, 0.75);
-  cursor: zoom-out;
-}
-
-.message-image-preview-img {
-  max-width: 90vw;
-  max-height: 90vh;
-  object-fit: contain;
-  border-radius: 4px;
-  cursor: zoom-out;
-}
-
-.message-image-preview-close {
-  position: fixed;
-  top: 1.5rem;
-  right: 1.5rem;
-  width: 2.5rem;
-  height: 2.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 50%;
-  color: var(--gray-0);
-  background: rgba(255, 255, 255, 0.15);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.28);
-  }
 }
 </style>

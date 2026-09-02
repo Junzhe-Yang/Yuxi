@@ -1,22 +1,12 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
+from typing import Any
 
 from deepagents.backends import FilesystemBackend
-from deepagents.backends.protocol import (
-    EditResult,
-    FileDownloadResponse,
-    FileInfo,
-    FileUploadResponse,
-    GlobResult,
-    GrepMatch,
-    GrepResult,
-    LsResult,
-    ReadResult,
-    WriteResult,
-)
+from deepagents.backends.protocol import EditResult, FileDownloadResponse, FileInfo, FileUploadResponse, WriteResult
 
-from yuxi.agents.skills.service import get_skills_root_dir, is_valid_skill_slug
+from yuxi.services.skill_service import get_skills_root_dir, is_valid_skill_slug
 
 
 class SelectedSkillsReadonlyBackend(FilesystemBackend):
@@ -50,62 +40,53 @@ class SelectedSkillsReadonlyBackend(FilesystemBackend):
         slug = self._extract_slug(file_path)
         return slug is not None and slug in self._selected_slugs
 
-    def _filter_infos(self, infos: list[FileInfo]) -> list[FileInfo]:
-        return [item for item in infos if self._extract_slug(item.get("path", "")) in self._selected_slugs]
-
-    def _filter_matches(self, matches: list[GrepMatch]) -> list[GrepMatch]:
-        return [item for item in matches if self._extract_slug(item.get("path", "")) in self._selected_slugs]
-
-    def ls(self, path: str) -> LsResult:
+    def ls_info(self, path: str) -> list[FileInfo]:
         if not self._selected_slugs:
-            return LsResult(entries=[])
+            return []
 
         normalized = (path or "/").strip() or "/"
         if not self._is_allowed_path(normalized):
-            return LsResult(error="Access denied: path is outside selected skills.")
+            return []
 
-        result = super().ls(normalized)
-        if result.error:
-            return result
-        infos = result.entries or []
+        infos = super().ls_info(normalized)
         if normalized == "/":
-            infos = self._filter_infos(infos)
-        return LsResult(entries=infos)
+            result = []
+            for item in infos:
+                slug = self._extract_slug(item.get("path", ""))
+                if slug in self._selected_slugs:
+                    result.append(item)
+            return result
+        return infos
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
         if not self._is_allowed_file(file_path):
-            return ReadResult(error="Access denied: file is outside selected skills.")
+            return "Access denied: file is outside selected skills."
         return super().read(file_path, offset=offset, limit=limit)
 
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[dict] | str:
         if not self._selected_slugs:
-            return GrepResult(matches=[])
+            return []
 
         if path is not None:
             if not self._is_allowed_path(path):
-                return GrepResult(error="Access denied: path is outside selected skills.")
-            result = super().grep(pattern=pattern, path=path, glob=glob)
-            if result.error:
-                return result
-            return GrepResult(matches=self._filter_matches(result.matches or []))
+                return "Access denied: path is outside selected skills."
+            return super().grep_raw(pattern=pattern, path=path, glob=glob)
 
-        matches: list[GrepMatch] = []
+        matches: list[dict[str, Any]] = []
         for slug in sorted(self._selected_slugs):
-            result = super().grep(pattern=pattern, path=f"/{slug}", glob=glob)
-            if result.error:
+            result = super().grep_raw(pattern=pattern, path=f"/{slug}", glob=glob)
+            if isinstance(result, str):
                 continue
-            matches.extend(result.matches or [])
-        return GrepResult(matches=matches)
+            matches.extend(result)
+        return matches
 
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:
+    def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:
         if not self._selected_slugs:
-            return GlobResult(matches=[])
+            return []
         if not self._is_allowed_path(path):
-            return GlobResult(error="Access denied: path is outside selected skills.")
-        result = super().glob(pattern=pattern, path=path)
-        if result.error:
-            return result
-        return GlobResult(matches=self._filter_infos(result.matches or []))
+            return []
+        infos = super().glob_info(pattern=pattern, path=path)
+        return [item for item in infos if self._extract_slug(item.get("path", "")) in self._selected_slugs]
 
     def write(self, file_path: str, content: str) -> WriteResult:
         return WriteResult(error="Skills path is read-only.")

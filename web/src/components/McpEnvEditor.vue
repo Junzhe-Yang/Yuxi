@@ -13,7 +13,7 @@
         删除
       </a-button>
     </div>
-    <a-button @click="addRow" class="add-env">
+    <a-button size="small" @click="addRow">
       <template #icon><PlusOutlined /></template>
       添加变量
     </a-button>
@@ -100,14 +100,8 @@ const removeRow = (index) => {
 watch(
   () => props.modelValue,
   (value) => {
-    const normalized = normalizeEnvObject(value)
-    // 传入值若只是本组件 emit 出去的回声，则跳过重建 rows。否则 key 为空的行
-    // （刚点击新增的空行、或正在输入 key 但 value 还为空的行）会被
-    // rows -> object -> rows 的往返同步丢弃，导致无法新增环境变量。
-    if (JSON.stringify(normalized) === JSON.stringify(rowsToObject(rows.value))) {
-      return
-    }
     syncingFromObject.value = true
+    const normalized = normalizeEnvObject(value)
     if (!normalized) {
       rows.value = [{ key: '', value: '' }]
     } else {
@@ -146,10 +140,6 @@ watch(
     .env-value-input {
       flex: 1;
     }
-  }
-
-  button.add-env {
-    width: fit-content;
   }
 }
 </style>

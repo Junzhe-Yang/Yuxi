@@ -3,8 +3,8 @@
     v-model:open="visible"
     title="上传评估基准"
     width="600px"
-    :mask-closable="!uploading"
-    :closable="!uploading"
+    :confirmLoading="uploading"
+    @ok="handleUpload"
     @cancel="handleCancel"
   >
     <a-form ref="formRef" :model="formState" :rules="rules" layout="vertical">
@@ -20,7 +20,7 @@
         />
       </a-form-item>
 
-      <a-form-item label="基准文件" name="file">
+      <a-form-item label="基准文件" name="file" :extra="extraText">
         <a-upload-dragger
           v-model:fileList="fileList"
           name="file"
@@ -29,40 +29,21 @@
           :before-upload="beforeUpload"
           @remove="handleRemove"
         >
-          <UploadCloud class="upload-icon" />
-          <p class="ant-upload-text">点击或拖拽 JSONL 文件到此区域上传</p>
-          <p class="ant-upload-hint">每行一个 JSON 对象，仅支持 .jsonl，最大 100MB</p>
+          <p class="ant-upload-text">
+            <FileTextOutlined />
+            点击或拖拽文件到此区域上传
+          </p>
+          <p class="ant-upload-hint">仅支持 JSONL 格式文件（.jsonl）</p>
         </a-upload-dragger>
       </a-form-item>
     </a-form>
-    <template #footer>
-      <div class="benchmark-modal-footer">
-        <div class="benchmark-help-text">
-          需要了解评估基准格式？查看
-          <a
-            class="benchmark-help-link"
-            href="https://xerrors.github.io/Yuxi/intro/evaluation.html"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            使用说明
-          </a>
-        </div>
-        <div class="footer-actions">
-          <a-button :disabled="uploading" @click="handleCancel">取消</a-button>
-          <a-button type="primary" :loading="uploading" :disabled="uploading" @click="handleUpload">
-            上传
-          </a-button>
-        </div>
-      </div>
-    </template>
   </a-modal>
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, h } from 'vue'
 import { message } from 'ant-design-vue'
-import { UploadCloud } from 'lucide-vue-next'
+import { FileTextOutlined } from '@ant-design/icons-vue'
 import { evaluationApi } from '@/apis/knowledge_api'
 
 const props = defineProps({
@@ -70,7 +51,7 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  kbId: {
+  databaseId: {
     type: String,
     required: true
   }
@@ -103,6 +84,22 @@ const visible = computed({
   get: () => props.visible,
   set: (val) => emit('update:visible', val)
 })
+
+// 说明文本
+const extraText = computed(() =>
+  h('span', {}, [
+    '需要了解评估基准格式？查看',
+    h(
+      'a',
+      {
+        href: 'https://xerrors.github.io/Yuxi/intro/evaluation.html',
+        target: '_blank',
+        rel: 'noopener noreferrer'
+      },
+      '使用说明'
+    )
+  ])
+)
 
 // 文件上传前验证
 const beforeUpload = async (file) => {
@@ -175,7 +172,7 @@ const handleUpload = async () => {
 
     uploading.value = true
 
-    const response = await evaluationApi.uploadDataset(props.kbId, formState.file, {
+    const response = await evaluationApi.uploadBenchmark(props.databaseId, formState.file, {
       name: formState.name,
       description: formState.description
     })
@@ -219,65 +216,19 @@ watch(visible, (val) => {
 
 <style lang="less" scoped>
 :deep(.ant-upload-dragger) {
-  padding: 24px 16px;
-  border-color: var(--gray-150);
-  background: var(--gray-0);
-  transition: all 0.2s ease;
-
-  &:hover {
-    border-color: var(--main-color);
-    background: var(--main-10);
-  }
-
   .ant-upload-text {
-    margin: 8px 0 4px;
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--gray-800);
+    font-size: 16px;
+    color: var(--gray-700);
+
+    .anticon {
+      font-size: 48px;
+      color: var(--gray-400);
+      margin-bottom: 16px;
+    }
   }
 
   .ant-upload-hint {
     color: var(--gray-500);
-  }
-}
-
-.upload-icon {
-  width: 44px;
-  height: 44px;
-  color: var(--main-color);
-}
-
-.benchmark-modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.benchmark-help-text {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--gray-600);
-}
-
-.benchmark-help-link {
-  margin-left: 2px;
-}
-
-.footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-@media (max-width: 640px) {
-  .benchmark-modal-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .footer-actions {
-    align-self: flex-end;
   }
 }
 </style>

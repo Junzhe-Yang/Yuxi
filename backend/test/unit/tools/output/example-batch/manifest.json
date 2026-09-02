@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "batch_id": "20260713T034201Z",
+  "created_at": "2026-07-13T03:42:01.678931+00:00",
+  "base_url": "http://10.5.225.24:5173",
+  "auth_mode": "login",
+  "agent_id": "ChatbotAgent",
+  "config_file": "D:\\work\\yuxi_batch_query\\yuxi_batch_rag\\config.json",
+  "input_file": "D:\\work\\yuxi_batch_query\\yuxi_batch_rag\\dataset_175.json",
+  "input_sha256": "7032d247ed9412b86ce2ae6a28b8a2c3d52f0110724026e56dd871a5c8247629",
+  "input_count": 175,
+  "variants": [
+    "vector",
+    "lightrag"
+  ],
+  "variant_config_ids": {
+    "vector": 10,
+    "lightrag": 11
+  },
+  "config_snapshots": {
+    "vector": {
+      "config": {
+        "id": 10,
+        "department_id": 1,
+        "agent_id": "ChatbotAgent",
+        "name": "kimi-graph",
+        "description": null,
+        "icon": null,
+        "pics": [],
+        "examples": [],
+        "config_json": {
+          "context": {
+            "system_prompt": "你是一个“医学建议”指导智能体，你需要根据检索到的知识库内容回答关于患者日常用药的合理性。你只能使用todo和query_kb两个工具，不允许使用其他工具。请你在给出指导建议时，必须附上你在知识库检索到的依据。格式为：\n【指导建议】\n....\n【相关依据】\n....",
+            "model": "nsfocus-d2:deepseek-v4-pro",
+            "tools": [],
+            "knowledges": [
+              "用药助手-md"
+            ],
+            "mcps": [],
+            "skills": [],
+            "subagents_model": "nsfocus-d2:deepseek-v4-pro",
+            "subagents": [],
+            "summary_threshold": 100
+          }
+        },
+        "is_default": false,
+        "created_by": "1",
+        "updated_by": "1",
+        "created_at": "2026-06-09T18:50:41.118095Z",
+        "updated_at": "2026-07-12T19:16:20.881016Z"
+      }
+    },
+    "lightrag": {
+      "config": {
+        "id": 11,
+        "department_id": 1,
+        "agent_id": "ChatbotAgent",
+        "name": "kimi-graph-1",
+        "description": null,
+        "icon": null,
+        "pics": [],
+        "examples": [],
+        "config_json": {
+          "context": {
+            "system_prompt": "你是一个“医学建议”指导智能体，你需要根据检索到的知识库内容回答关于患者日常用药的合理性。你只能使用todo，list_kbs和query_kb工具，不允许使用其他工具，不允许创建子智能体。请你在给出指导建议时，必须附上你在知识库检索到的依据。格式为：\n【指导建议】\n....\n【相关依据】\n....",
+            "model": "nsfocus-d:deepseek-v4-pro",
+            "tools": [],
+            "knowledges": [
+              "用药助手-md-graph"
+            ],
+            "mcps": [],
+            "skills": [],
+            "subagents_model": "nsfocus-d:deepseek-v4-pro",
+            "subagents": [],
+            "summary_threshold": 100
+          }
+        },
+        "is_default": false,
+        "created_by": "1",
+        "updated_by": "1",
+        "created_at": "2026-06-16T17:56:12.795615Z",
+        "updated_at": "2026-06-25T22:35:51.766685Z"
+      }
+    }
+  },
+  "knowledge_query_params": {},
+  "execution": {
+    "concurrency": 1,
+    "run_timeout_seconds": 960.0,
+    "max_attempts": 2,
+    "verify_tls": true
+  }
+}

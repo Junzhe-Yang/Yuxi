@@ -4,8 +4,6 @@ from typing import Any
 
 from yuxi.knowledge.chunking.ragflow_like import nlp
 
-GENERAL_HARD_LIMIT_RATIO = 1.5
-
 
 def _unescape_delimiter(delimiter: str) -> str:
     return delimiter.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\\", "\\")
@@ -33,12 +31,11 @@ def _iter_sections(markdown_content: str, delimiter: str) -> list[tuple[str, str
 
 
 def _ensure_chunk_token_limit(chunks: list[str], chunk_token_num: int) -> list[str]:
-    """对输出 chunk 做 token 上限保护：默认 512 token 时允许到 768 再硬切。"""
+    """对输出 chunk 做 token 上限保护：超长的直接硬切。"""
     max_tokens = int(chunk_token_num or 0)
     if max_tokens <= 0:
         return [c.strip() for c in chunks if c and c.strip()]
 
-    hard_limit = max(max_tokens, int(max_tokens * GENERAL_HARD_LIMIT_RATIO))
     protected: list[str] = []
     for chunk in chunks:
         cleaned = (chunk or "").strip()
@@ -47,7 +44,7 @@ def _ensure_chunk_token_limit(chunks: list[str], chunk_token_num: int) -> list[s
         if nlp.count_tokens(cleaned) <= max_tokens:
             protected.append(cleaned)
         else:
-            protected.extend(nlp.hard_split_by_token_limit(cleaned, max_tokens, hard_limit_token_num=hard_limit))
+            protected.extend(nlp.hard_split_by_token_limit(cleaned, max_tokens))
     return protected
 
 

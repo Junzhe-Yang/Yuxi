@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from types import SimpleNamespace
 
-from fastapi import HTTPException
 import pytest
 from yuxi.agents.backends.sandbox import (
     ensure_thread_dirs,
@@ -25,15 +23,15 @@ def _get_provider():
 
 
 async def _create_thread_for_user(test_client, headers: dict[str, str]) -> str:
-    agents_resp = await test_client.get("/api/agent", headers=headers)
+    agents_resp = await test_client.get("/api/chat/agent", headers=headers)
     assert agents_resp.status_code == 200, agents_resp.text
     agents = agents_resp.json().get("agents", [])
     if not agents:
         pytest.skip("No agents available for viewer filesystem integration tests.")
 
-    agent_id = agents[0].get("agent_id") or agents[0].get("slug")
+    agent_id = agents[0].get("id")
     if not agent_id:
-        pytest.skip("Agent payload missing agent_id field.")
+        pytest.skip("Agent payload missing id field.")
 
     create_resp = await test_client.post(
         "/api/chat/thread",
@@ -97,8 +95,8 @@ async def test_viewer_tree_root_does_not_require_sandbox_listing(test_client, st
     thread_id = await _create_thread_for_user(test_client, headers)
 
     class _FailingSandbox:
-        def ls(self, path):
-            raise AssertionError(f"sandbox ls should not be used for root path: {path}")
+        def ls_info(self, path):
+            raise AssertionError(f"sandbox ls_info should not be used for root path: {path}")
 
     class _EmptyBackend:
         def has_entries(self):
@@ -107,7 +105,7 @@ async def test_viewer_tree_root_does_not_require_sandbox_listing(test_client, st
     service_module = importlib.import_module("yuxi.services.viewer_filesystem_service")
 
     async def _fake_resolve_viewer_state(**kwargs):
-        return _FailingSandbox(), _EmptyBackend(), []
+        return _FailingSandbox(), _EmptyBackend(), _EmptyBackend(), []
 
     monkeypatch.setattr(service_module, "_resolve_viewer_state", _fake_resolve_viewer_state)
 
@@ -125,16 +123,16 @@ async def test_viewer_tree_root_does_not_require_sandbox_listing(test_client, st
 
 async def test_viewer_tree_user_data_uses_local_thread_directory(test_client, standard_user, monkeypatch):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "viewer_tree_demo.txt"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "viewer_tree_demo.txt"
     actual_path.write_text("viewer tree", encoding="utf-8")
 
     class _FailingSandbox:
-        def ls(self, path):
-            raise AssertionError(f"sandbox ls should not be used for user-data path: {path}")
+        def ls_info(self, path):
+            raise AssertionError(f"sandbox ls_info should not be used for user-data path: {path}")
 
     class _EmptyBackend:
         def has_entries(self):
@@ -143,7 +141,7 @@ async def test_viewer_tree_user_data_uses_local_thread_directory(test_client, st
     service_module = importlib.import_module("yuxi.services.viewer_filesystem_service")
 
     async def _fake_resolve_viewer_state(**kwargs):
-        return _FailingSandbox(), _EmptyBackend(), []
+        return _FailingSandbox(), _EmptyBackend(), _EmptyBackend(), []
 
     monkeypatch.setattr(service_module, "_resolve_viewer_state", _fake_resolve_viewer_state)
 
@@ -164,10 +162,10 @@ async def test_viewer_tree_user_data_uses_local_thread_directory(test_client, st
 
 async def test_viewer_tree_user_data_root_keeps_thread_root_files_visible(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
+    ensure_thread_dirs(thread_id, user_id)
     root_file = sandbox_user_data_dir(thread_id) / "root-note.txt"
     root_file.write_text("visible at root", encoding="utf-8")
 
@@ -185,12 +183,12 @@ async def test_viewer_tree_user_data_root_keeps_thread_root_files_visible(test_c
 
 async def test_workspace_is_shared_across_same_user_threads_but_uploads_remain_thread_local(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
     other_thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    shared_path = sandbox_workspace_dir(thread_id, uid) / "shared_across_threads.txt"
+    ensure_thread_dirs(thread_id, user_id)
+    shared_path = sandbox_workspace_dir(thread_id, user_id) / "shared_across_threads.txt"
     shared_path.write_text("shared workspace", encoding="utf-8")
 
     upload_path = await _upload_attachment_file(test_client, thread_id, headers, "thread-local.txt", "private upload\n")
@@ -237,13 +235,13 @@ async def test_viewer_file_returns_raw_content_without_line_numbers(test_client,
 
 async def test_viewer_file_returns_unsupported_for_binary_payload(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "binary.bin"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "binary.bin"
     actual_path.write_bytes(b"\x00\x01\x02\x03binary")
-    file_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    file_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     response = await test_client.get(
         "/api/viewer/filesystem/file",
@@ -260,15 +258,15 @@ async def test_viewer_file_returns_unsupported_for_binary_payload(test_client, s
 
 async def test_viewer_file_returns_image_preview_metadata(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "demo.png"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "demo.png"
     actual_path.write_bytes(
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
     )
-    file_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    file_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     response = await test_client.get(
         "/api/viewer/filesystem/file",
@@ -285,13 +283,13 @@ async def test_viewer_file_returns_image_preview_metadata(test_client, standard_
 
 async def test_viewer_file_returns_pdf_preview_metadata(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "demo.pdf"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "demo.pdf"
     actual_path.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF")
-    file_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    file_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     response = await test_client.get(
         "/api/viewer/filesystem/file",
@@ -325,14 +323,14 @@ async def test_viewer_download_returns_attachment_response(test_client, standard
 
 async def test_viewer_download_returns_full_file_for_large_user_data_content(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
     large_content = "0123456789abcdef" * 4096
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "large_download.txt"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "large_download.txt"
     actual_path.write_text(large_content, encoding="utf-8")
-    file_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    file_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     response = await test_client.get(
         "/api/viewer/filesystem/download",
@@ -345,13 +343,13 @@ async def test_viewer_download_returns_full_file_for_large_user_data_content(tes
 
 async def test_viewer_delete_removes_user_data_file(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "delete_me.txt"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "delete_me.txt"
     actual_path.write_text("delete me", encoding="utf-8")
-    file_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    file_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     delete_response = await test_client.delete(
         "/api/viewer/filesystem/file",
@@ -374,13 +372,13 @@ async def test_viewer_delete_removes_user_data_file(test_client, standard_user):
 
 async def test_viewer_delete_removes_empty_user_data_directory(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "empty-folder"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "empty-folder"
     actual_path.mkdir()
-    dir_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    dir_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     delete_response = await test_client.delete(
         "/api/viewer/filesystem/file",
@@ -403,16 +401,16 @@ async def test_viewer_delete_removes_empty_user_data_directory(test_client, stan
 
 async def test_viewer_delete_recursively_removes_user_data_directory(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    actual_path = sandbox_workspace_dir(thread_id, uid) / "nested-folder"
+    ensure_thread_dirs(thread_id, user_id)
+    actual_path = sandbox_workspace_dir(thread_id, user_id) / "nested-folder"
     nested_dir = actual_path / "child"
     nested_dir.mkdir(parents=True)
     nested_file = nested_dir / "notes.txt"
     nested_file.write_text("remove recursively", encoding="utf-8")
-    dir_path = virtual_path_for_thread_file(thread_id, actual_path, uid=uid)
+    dir_path = virtual_path_for_thread_file(thread_id, actual_path, user_id=user_id)
 
     delete_response = await test_client.delete(
         "/api/viewer/filesystem/file",
@@ -450,7 +448,6 @@ async def test_viewer_delete_rejects_readonly_namespace_directory(test_client, s
 @pytest.mark.parametrize(
     "protected_path",
     [
-        "/home/gem/user-data",
         "/home/gem/user-data/workspace",
         "/home/gem/user-data/uploads",
         "/home/gem/user-data/outputs",
@@ -460,10 +457,10 @@ async def test_viewer_delete_rejects_protected_user_data_root_directories(
     test_client, standard_user, protected_path: str
 ):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
+    ensure_thread_dirs(thread_id, user_id)
 
     response = await test_client.delete(
         "/api/viewer/filesystem/file",
@@ -474,36 +471,12 @@ async def test_viewer_delete_rejects_protected_user_data_root_directories(
     assert response.json()["detail"] == "当前目录不允许删除"
 
 
-async def test_delete_viewer_file_rejects_user_data_root_without_removing(monkeypatch):
-    from yuxi.services import viewer_filesystem_service as service_module
-
-    async def _fake_resolve_viewer_state(**kwargs):
-        return object(), object(), []
-
-    def _fail_rmtree(path):
-        raise AssertionError(f"unexpected root removal: {path}")
-
-    monkeypatch.setattr(service_module, "_resolve_viewer_state", _fake_resolve_viewer_state)
-    monkeypatch.setattr(service_module.shutil, "rmtree", _fail_rmtree)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await service_module.delete_viewer_file(
-            thread_id="thread-1",
-            path="/home/gem/user-data",
-            current_user=SimpleNamespace(uid="user-1"),
-            db=None,
-        )
-
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "当前目录不允许删除"
-
-
 async def test_viewer_create_directory_adds_workspace_folder(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
+    ensure_thread_dirs(thread_id, user_id)
 
     response = await test_client.post(
         "/api/viewer/filesystem/directory",
@@ -518,7 +491,7 @@ async def test_viewer_create_directory_adds_workspace_folder(test_client, standa
     payload = response.json()
     assert payload["success"] is True
     assert payload["entry"]["path"] == "/home/gem/user-data/workspace/created-folder/"
-    assert (sandbox_workspace_dir(thread_id, uid) / "created-folder").is_dir()
+    assert (sandbox_workspace_dir(thread_id, user_id) / "created-folder").is_dir()
 
     tree_response = await test_client.get(
         "/api/viewer/filesystem/tree",
@@ -532,23 +505,23 @@ async def test_viewer_create_directory_adds_workspace_folder(test_client, standa
 
 async def test_viewer_upload_file_writes_to_workspace_subdirectory(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    target_dir = sandbox_workspace_dir(thread_id, uid) / "upload-target"
+    ensure_thread_dirs(thread_id, user_id)
+    target_dir = sandbox_workspace_dir(thread_id, user_id) / "upload-target"
     target_dir.mkdir()
 
     response = await test_client.post(
         "/api/viewer/filesystem/upload",
         data={"thread_id": thread_id, "parent_path": "/home/gem/user-data/workspace/upload-target"},
-        files={"files": ("uploaded.txt", b"uploaded from viewer\n", "text/plain")},
+        files={"file": ("uploaded.txt", b"uploaded from viewer\n", "text/plain")},
         headers=headers,
     )
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["success"] is True
-    assert payload["entries"][0]["path"] == "/home/gem/user-data/workspace/upload-target/uploaded.txt"
+    assert payload["entry"]["path"] == "/home/gem/user-data/workspace/upload-target/uploaded.txt"
 
     file_response = await test_client.get(
         "/api/viewer/filesystem/file",
@@ -561,11 +534,11 @@ async def test_viewer_upload_file_writes_to_workspace_subdirectory(test_client, 
 
 async def test_viewer_create_directory_rejects_conflict(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    (sandbox_workspace_dir(thread_id, uid) / "conflict").mkdir()
+    ensure_thread_dirs(thread_id, user_id)
+    (sandbox_workspace_dir(thread_id, user_id) / "conflict").mkdir()
 
     response = await test_client.post(
         "/api/viewer/filesystem/directory",
@@ -582,17 +555,17 @@ async def test_viewer_create_directory_rejects_conflict(test_client, standard_us
 
 async def test_viewer_upload_file_rejects_conflict_without_overwrite(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
+    user_id = str(standard_user["user"]["id"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
-    ensure_thread_dirs(thread_id, uid)
-    existing_file = sandbox_workspace_dir(thread_id, uid) / "existing.txt"
+    ensure_thread_dirs(thread_id, user_id)
+    existing_file = sandbox_workspace_dir(thread_id, user_id) / "existing.txt"
     existing_file.write_text("keep me\n", encoding="utf-8")
 
     response = await test_client.post(
         "/api/viewer/filesystem/upload",
         data={"thread_id": thread_id, "parent_path": "/home/gem/user-data/workspace"},
-        files={"files": ("existing.txt", b"replace me\n", "text/plain")},
+        files={"file": ("existing.txt", b"replace me\n", "text/plain")},
         headers=headers,
     )
     assert response.status_code == 400, response.text
@@ -623,7 +596,7 @@ async def test_viewer_write_rejects_non_workspace_paths(test_client, standard_us
     upload_response = await test_client.post(
         "/api/viewer/filesystem/upload",
         data={"thread_id": thread_id, "parent_path": parent_path},
-        files={"files": ("blocked.txt", b"blocked", "text/plain")},
+        files={"file": ("blocked.txt", b"blocked", "text/plain")},
         headers=headers,
     )
     assert upload_response.status_code == 400, upload_response.text

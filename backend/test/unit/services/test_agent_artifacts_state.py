@@ -4,15 +4,13 @@ from yuxi.agents.backends.sandbox import (
     sandbox_outputs_dir,
     sandbox_uploads_dir,
 )
-from yuxi.agents.buildin.chatbot.state import merge_subagent_runs
 from yuxi.agents.state import merge_artifacts
 from yuxi.agents.toolkits.buildin.tools import _normalize_presented_artifact_path
 from yuxi.services.chat_service import extract_agent_state
-from yuxi.utils.paths import CONVERSATION_HISTORY_DIR_NAME, LARGE_TOOL_RESULTS_DIR_NAME
 
 
-def _runtime_with_thread(thread_id: str, uid: str = "user-1"):
-    context = type("RuntimeContext", (), {"thread_id": thread_id, "uid": uid})()
+def _runtime_with_thread(thread_id: str, user_id: str = "user-1"):
+    context = type("RuntimeContext", (), {"thread_id": thread_id, "user_id": user_id})()
     return type("RuntimeStub", (), {"context": context})()
 
 
@@ -23,19 +21,6 @@ def test_merge_artifacts_deduplicates_and_preserves_order():
     ) == [
         "/home/gem/user-data/outputs/a.md",
         "/home/gem/user-data/outputs/b.md",
-    ]
-
-
-def test_merge_subagent_runs_updates_existing_run_by_id():
-    assert merge_subagent_runs(
-        [{"id": "run-1", "status": "completed", "result_preview": "old"}],
-        [
-            {"id": "run-1", "status": "failed", "error": "boom"},
-            {"id": "run-2", "status": "completed"},
-        ],
-    ) == [
-        {"id": "run-1", "status": "failed", "result_preview": "old", "error": "boom"},
-        {"id": "run-2", "status": "completed"},
     ]
 
 
@@ -78,36 +63,15 @@ def test_normalize_presented_artifact_path_rejects_non_outputs_path():
         raise AssertionError("expected ValueError for non-outputs file")
 
 
-def test_normalize_presented_artifact_path_rejects_internal_output_files():
-    thread_id = "artifacts-reject-internal"
-    ensure_thread_dirs(thread_id, "user-1")
-
-    for dir_name in [LARGE_TOOL_RESULTS_DIR_NAME, CONVERSATION_HISTORY_DIR_NAME, "large_tool_history"]:
-        output_file = sandbox_outputs_dir(thread_id) / dir_name / "stage.txt"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text("internal", encoding="utf-8")
-
-        try:
-            _normalize_presented_artifact_path(str(output_file), _runtime_with_thread(thread_id))
-        except ValueError as exc:
-            assert "工具调用阶段文件" in str(exc)
-        else:
-            raise AssertionError(f"expected ValueError for internal output file under {dir_name}")
-
-
 def test_extract_agent_state_includes_artifacts():
     state = extract_agent_state(
         {
             "todos": [{"content": "done", "status": "completed"}],
             "files": {"/tmp/demo.txt": {"content": ["x"]}},
             "artifacts": ["/home/gem/user-data/outputs/demo.txt"],
-            "subagent_runs": [{"id": "tool-1", "status": "completed"}],
-            "token_usage": {"llm_input_tokens": 42},
         }
     )
 
     assert state["todos"] == [{"content": "done", "status": "completed"}]
     assert state["files"] == {"/tmp/demo.txt": {"content": ["x"]}}
     assert state["artifacts"] == ["/home/gem/user-data/outputs/demo.txt"]
-    assert state["subagent_runs"] == [{"id": "tool-1", "status": "completed"}]
-    assert state["token_usage"] == {"llm_input_tokens": 42}

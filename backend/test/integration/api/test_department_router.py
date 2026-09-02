@@ -16,7 +16,7 @@ async def test_superadmin_can_delete_department_with_users(test_client, admin_he
     department_payload = {
         "name": f"pytest_department_{suffix}",
         "description": "integration test department",
-        "admin_uid": f"pta_{suffix}",
+        "admin_user_id": f"pta_{suffix}",
         "admin_password": "RouterDept123!",
     }
     user_payload = {
@@ -49,7 +49,7 @@ async def test_superadmin_can_delete_department_with_users(test_client, admin_he
         list_users_response = await test_client.get("/api/auth/users", headers=admin_headers)
         assert list_users_response.status_code == 200, list_users_response.text
         users_before_delete = list_users_response.json()
-        department_admin = next((user for user in users_before_delete if user["uid"] == department_payload["admin_uid"]), None)
+        department_admin = next((user for user in users_before_delete if user["user_id"] == department_payload["admin_user_id"]), None)
         assert department_admin is not None
         department_admin_id = department_admin["id"]
 
@@ -68,14 +68,13 @@ async def test_superadmin_can_delete_department_with_users(test_client, admin_he
         assert list_users_after_delete_response.status_code == 200, list_users_after_delete_response.text
         users_after_delete = list_users_after_delete_response.json()
 
-        # 删除部门后用户迁移到默认部门（代码中默认部门固定为 id=1，其名称可被用户修改）
         migrated_admin = next((user for user in users_after_delete if user["id"] == department_admin_id), None)
         assert migrated_admin is not None
-        assert migrated_admin["department_id"] == 1
+        assert migrated_admin["department_name"] == "默认部门"
 
         migrated_user = next((user for user in users_after_delete if user["id"] == created_user_id), None)
         assert migrated_user is not None
-        assert migrated_user["department_id"] == 1
+        assert migrated_user["department_name"] == "默认部门"
     finally:
         if department_admin_id is not None:
             await test_client.delete(f"/api/auth/users/{department_admin_id}", headers=admin_headers)
@@ -90,8 +89,7 @@ async def test_superadmin_cannot_delete_default_department(test_client, admin_he
     assert departments_response.status_code == 200, departments_response.text
     departments = departments_response.json()
 
-    # 默认部门在代码中固定为 id=1（受保护不可删除），其名称可被用户修改，故按 id 定位
-    default_department = next((department for department in departments if department["id"] == 1), None)
+    default_department = next((department for department in departments if department["name"] == "默认部门"), None)
     assert default_department is not None
 
     delete_response = await test_client.delete(f"/api/departments/{default_department['id']}", headers=admin_headers)

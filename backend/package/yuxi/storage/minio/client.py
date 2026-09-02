@@ -189,7 +189,7 @@ class MinIOClient:
             return data
 
         except S3Error as e:
-            if e.code == "NoSuchKey":
+            if "NoSuchKey" in str(e):
                 raise StorageError(f"对象 '{object_name}' 在存储桶 '{bucket_name}' 中不存在")
             raise StorageError(f"下载文件失败: {e}")
 
@@ -204,7 +204,7 @@ class MinIOClient:
             return response
 
         except S3Error as e:
-            if e.code == "NoSuchKey":
+            if "NoSuchKey" in str(e):
                 raise StorageError(f"对象 '{object_name}' 在存储桶 '{bucket_name}' 中不存在")
             raise StorageError(f"下载文件失败: {e}")
 
@@ -218,7 +218,7 @@ class MinIOClient:
             return data
 
         except S3Error as e:
-            if e.code == "NoSuchKey":
+            if "NoSuchKey" in str(e):
                 raise StorageError(f"对象 '{object_name}' 在存储桶 '{bucket_name}' 中不存在")
             raise StorageError(f"下载文件失败: {e}")
 
@@ -237,7 +237,7 @@ class MinIOClient:
             return True
 
         except S3Error as e:
-            if e.code == "NoSuchKey":
+            if "NoSuchKey" in str(e):
                 logger.warning(f"要删除的对象 '{object_name}' 不存在")
                 return False
             raise StorageError(f"删除文件失败: {e}")
@@ -298,7 +298,7 @@ class MinIOClient:
             logger.info(f"成功删除 bucket: {bucket_name}")
             return True
         except S3Error as e:
-            if e.code == "NoSuchBucket":
+            if "NoSuchBucket" in str(e):
                 logger.warning(f"bucket 不存在: {bucket_name}")
                 return False
             raise StorageError(f"删除 bucket 失败: {e}")
@@ -309,23 +309,9 @@ class MinIOClient:
             self.client.stat_object(bucket_name=bucket_name, object_name=object_name)
             return True
         except S3Error as e:
-            if e.code == "NoSuchKey":
+            if "NoSuchKey" in str(e):
                 return False
             raise StorageError(f"检查文件存在性失败: {e}")
-
-    def stat_file(self, bucket_name: str, object_name: str) -> int | None:
-        """获取文件大小（字节），文件不存在时返回 None"""
-        try:
-            stat = self.client.stat_object(bucket_name=bucket_name, object_name=object_name)
-            return stat.size
-        except S3Error as e:
-            if e.code == "NoSuchKey":
-                return None
-            raise StorageError(f"获取文件信息失败: {e}")
-
-    async def astat_file(self, bucket_name: str, object_name: str) -> int | None:
-        """异步获取文件大小（字节），文件不存在时返回 None"""
-        return await asyncio.to_thread(self.stat_file, bucket_name, object_name)
 
     def _ensure_public_read_access(self, bucket_name: str) -> None:
         """设置存储桶策略，允许公开读取对象"""

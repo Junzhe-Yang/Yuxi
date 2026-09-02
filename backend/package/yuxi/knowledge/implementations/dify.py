@@ -3,78 +3,85 @@ from typing import Any
 
 import httpx
 
-from yuxi.knowledge.implementations.read_only_connectors import ReadOnlyConnectors
+from yuxi.knowledge.base import KnowledgeBase
 from yuxi.utils import logger
 
-DIFY_REQUIRED_PARAMS = ("dify_api_url", "dify_token", "dify_dataset_id")
 
-
-class DifyKB(ReadOnlyConnectors):
+class DifyKB(KnowledgeBase):
     """基于 Dify Dataset Retrieve API 的只读检索知识库实现"""
-
-    kb_type = "dify"
-    name = "Dify"
-    description = "连接 Dify Dataset 的只读检索知识库"
 
     def __init__(self, work_dir: str, **kwargs):
         del kwargs
         super().__init__(work_dir)
 
-    @classmethod
-    def get_create_params_config(cls) -> dict[str, Any]:
-        return {
-            "options": [
-                {
-                    "key": "dify_api_url",
-                    "label": "Dify API URL",
-                    "type": "text",
-                    "required": True,
-                    "placeholder": "例如: https://api.dify.ai/v1",
-                    "description": "Dify API 地址，必须以 /v1 结尾",
-                },
-                {
-                    "key": "dify_token",
-                    "label": "Dify Token",
-                    "type": "password",
-                    "required": True,
-                    "placeholder": "请输入 Dify API Token",
-                },
-                {
-                    "key": "dify_dataset_id",
-                    "label": "Dataset ID",
-                    "type": "text",
-                    "required": True,
-                    "placeholder": "请输入 Dify dataset_id",
-                },
-            ]
-        }
+    @property
+    def kb_type(self) -> str:
+        return "dify"
 
-    @classmethod
-    def validate_additional_params(cls, additional_params: dict | None) -> dict:
-        params = dict(additional_params or {})
-        missing_fields = [field for field in DIFY_REQUIRED_PARAMS if not str(params.get(field) or "").strip()]
-        if missing_fields:
-            raise ValueError(f"Dify 参数缺失: {', '.join(missing_fields)}")
+    async def _create_kb_instance(self, db_id: str, config: dict) -> Any:
+        return None
 
-        params["dify_api_url"] = str(params.get("dify_api_url") or "").strip()
-        params["dify_token"] = str(params.get("dify_token") or "").strip()
-        params["dify_dataset_id"] = str(params.get("dify_dataset_id") or "").strip()
-        if not params["dify_api_url"].endswith("/v1"):
-            raise ValueError("Dify api_url 必须以 /v1 结尾")
-        return params
+    async def _initialize_kb_instance(self, instance: Any) -> None:
+        return None
 
-    async def aquery(self, query_text: str, kb_id: str, agent_call: bool = False, **kwargs) -> list[dict]:
+    @staticmethod
+    def _readonly_error() -> ValueError:
+        return ValueError("Dify 知识库为只读检索类型，不支持该操作")
+
+    async def add_file_record(
+        self, db_id: str, item: str, params: dict | None = None, operator_id: str | None = None
+    ) -> dict:
+        raise self._readonly_error()
+
+    async def parse_file(self, db_id: str, file_id: str, operator_id: str | None = None) -> dict:
+        raise self._readonly_error()
+
+    async def update_file_params(self, db_id: str, file_id: str, params: dict, operator_id: str | None = None) -> None:
+        raise self._readonly_error()
+
+    async def create_folder(self, db_id: str, folder_name: str, parent_id: str | None = None) -> dict:
+        raise self._readonly_error()
+
+    async def move_file(self, db_id: str, file_id: str, new_parent_id: str | None) -> dict:
+        raise self._readonly_error()
+
+    async def delete_folder(self, db_id: str, folder_id: str) -> None:
+        raise self._readonly_error()
+
+    async def index_file(self, db_id: str, file_id: str, operator_id: str | None = None) -> dict:
+        raise self._readonly_error()
+
+    async def update_content(self, db_id: str, file_ids: list[str], params: dict | None = None) -> list[dict]:
+        raise self._readonly_error()
+
+    async def delete_file(self, db_id: str, file_id: str) -> None:
+        raise self._readonly_error()
+
+    async def get_file_basic_info(self, db_id: str, file_id: str) -> dict:
+        raise self._readonly_error()
+
+    async def get_file_content(self, db_id: str, file_id: str) -> dict:
+        raise self._readonly_error()
+
+    async def open_file_content(self, db_id: str, file_id: str, offset: int = 0, limit: int = 800) -> dict:
+        del offset, limit
+        raise self._readonly_error()
+
+    async def get_file_info(self, db_id: str, file_id: str) -> dict:
+        raise self._readonly_error()
+
+    async def aquery(self, query_text: str, db_id: str, agent_call: bool = False, **kwargs) -> list[dict]:
         del agent_call
-        metadata = self.databases_meta.get(kb_id, {}).get("metadata", {}) or {}
+        metadata = self.databases_meta.get(db_id, {}).get("metadata", {}) or {}
         api_url = str(metadata.get("dify_api_url") or "").strip()
         token = str(metadata.get("dify_token") or "").strip()
         dataset_id = str(metadata.get("dify_dataset_id") or "").strip()
 
         if not api_url or not token or not dataset_id:
-            logger.error(f"Dify config incomplete for kb_id={kb_id}")
+            logger.error(f"Dify config incomplete for db_id={db_id}")
             return []
 
-        query_params = self._get_query_params(kb_id)
+        query_params = self._get_query_params(db_id)
         merged = {**query_params, **kwargs}
 
         search_mode = str(merged.get("search_mode", "vector")).lower()
@@ -109,7 +116,7 @@ class DifyKB(ReadOnlyConnectors):
         try:
             response_json = await self._request_dify(client_payload=payload, request_url=request_url, headers=headers)
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Dify query failed for kb_id={kb_id}: {e}, {traceback.format_exc()}")
+            logger.error(f"Dify query failed for db_id={db_id}: {e}, {traceback.format_exc()}")
             # 一些 Dify 部署版本对 retrieval_model 兼容性较差，失败时降级为仅 query 请求重试一次
             try:
                 response_json = await self._request_dify(
@@ -117,10 +124,10 @@ class DifyKB(ReadOnlyConnectors):
                     request_url=request_url,
                     headers=headers,
                 )
-                logger.warning(f"Dify query fallback to query-only succeeded for kb_id={kb_id}")
+                logger.warning(f"Dify query fallback to query-only succeeded for db_id={db_id}")
             except Exception as fallback_error:  # noqa: BLE001
                 logger.error(
-                    f"Dify query fallback failed for kb_id={kb_id}: {fallback_error}, {traceback.format_exc()}"
+                    f"Dify query fallback failed for db_id={db_id}: {fallback_error}, {traceback.format_exc()}"
                 )
                 return []
 
@@ -172,8 +179,8 @@ class DifyKB(ReadOnlyConnectors):
                 raise e
             return response.json()
 
-    def get_query_params_config(self, kb_id: str, **kwargs) -> dict:
-        del kb_id, kwargs
+    def get_query_params_config(self, db_id: str, **kwargs) -> dict:
+        del db_id, kwargs
         options = [
             {
                 "key": "search_mode",

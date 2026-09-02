@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.utils.auth_middleware import get_admin_user, get_db, get_required_user
-from yuxi.models.providers.service import (
+from server.utils.auth_middleware import get_admin_user, get_db
+from yuxi.services.model_provider_service import (
     check_credential_status,
     create_provider_config,
     delete_provider_config,
@@ -27,7 +27,7 @@ model_providers = APIRouter(prefix="/system/model-providers", tags=["model-provi
 
 async def _refresh_model_cache() -> None:
     """刷新模型缓存（CRUD 操作后调用）。"""
-    from yuxi.models.providers.cache import model_cache
+    from yuxi.services.model_cache import model_cache
 
     try:
         async with pg_manager.get_async_session_context() as session:
@@ -87,7 +87,6 @@ async def create_provider(
             payload.model_dump(exclude_none=True),
             current_user.username,
         )
-        await db.commit()
         await _refresh_model_cache()
         return {"success": True, "data": provider.to_dict()}
     except ValueError as e:
@@ -139,7 +138,6 @@ async def update_provider(
         provider = await update_provider_config(db, provider_id, data, current_user.username)
         if provider is None:
             raise HTTPException(status_code=404, detail=f"供应商 {provider_id} 不存在")
-        await db.commit()
         await _refresh_model_cache()
         return {"success": True, "data": provider.to_dict()}
     except HTTPException:
@@ -161,7 +159,6 @@ async def delete_provider(
     deleted = await delete_provider_config(db, provider_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"供应商 {provider_id} 不存在")
-    await db.commit()
     await _refresh_model_cache()
     return {"success": True}
 
@@ -196,7 +193,7 @@ async def refresh_model_cache(
 ):
     """强制刷新模型缓存，从数据库重新加载所有供应商配置到 Redis。"""
     await _refresh_model_cache()
-    from yuxi.models.providers.cache import model_cache
+    from yuxi.services.model_cache import model_cache
 
     return {"success": True, "message": "缓存已刷新", "model_count": len(model_cache.get_all_specs())}
 
@@ -204,27 +201,20 @@ async def refresh_model_cache(
 @model_providers.get("/models/v2")
 async def get_v2_models(
     model_type: str = "chat",
-    _current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
 ):
     """获取 v2 格式的模型列表，按 provider 分组。
 
     v2 模型 spec 格式: provider_id:model_id（冒号分隔）
     返回数据供前端模型选择器使用。
     """
-    from yuxi.models.providers.cache import model_cache
+    from yuxi.services.model_cache import model_cache
 
     grouped = model_cache.get_specs_grouped_by_provider(model_type)
-    providers = await get_all_model_providers(db)
-    provider_name_by_id = {
-        provider.provider_id: provider.display_name or provider.provider_id for provider in providers
-    }
 
     result = {}
     for provider_id, models in grouped.items():
         result[provider_id] = {
-            "provider_id": provider_id,
-            "provider_display_name": provider_name_by_id.get(provider_id, provider_id),
             "models": [
                 {
                     "spec": m.spec,
@@ -238,6 +228,8 @@ async def get_v2_models(
         }
 
     return {"success": True, "data": result}
+
+
 
 
 @model_providers.get("/models/status")

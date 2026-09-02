@@ -13,7 +13,7 @@
 
 ## 模型配置
 
-由网页统一管理，详见 [模型配置](../intro/model-config.md)。
+由网页统一管理，详见 [模型配置](./intro/model-config.md)。
 
 ## 应用配置
 

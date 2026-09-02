@@ -1,0 +1,57 @@
+{
+  "base_url": "https://your-yuxi.example.com",
+  "auth": {
+    "mode": "login",
+    "login_id_env": "YUXI_LOGIN_ID",
+    "password_env": "YUXI_PASSWORD"
+  },
+  "agent_id": "MedicationReviewAgent",
+  "input_file": "input.example.json",
+  "output_dir": "output/pea-rag-v2-ablation",
+  "concurrency": 1,
+  "request_timeout_seconds": 60,
+  "run_timeout_seconds": 960,
+  "max_attempts": 2,
+  "max_sse_reconnects": 8,
+  "sse_reconnect_delay_seconds": 1,
+  "verify_tls": true,
+  "write_raw_events": true,
+  "allow_debug_stopped": true,
+  "variants": {
+    "p0_plan": {
+      "agent_config_id": 123,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_run_mode": "stop_after_plan",
+      "expected_agenda_mode": "none",
+      "expected_synthesis_mode": "direct_chunks"
+    },
+    "p1_retrieval_no_agenda": {
+      "agent_config_id": 124,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_run_mode": "stop_after_retrieval",
+      "expected_agenda_mode": "none",
+      "expected_synthesis_mode": "direct_chunks"
+    },
+    "p2_retrieval_dynamic_agenda": {
+      "agent_config_id": 125,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_run_mode": "stop_after_retrieval",
+      "expected_agenda_mode": "dynamic",
+      "expected_synthesis_mode": "direct_chunks"
+    },
+    "full_direct_chunks": {
+      "agent_config_id": 126,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_run_mode": "full",
+      "expected_agenda_mode": "dynamic",
+      "expected_synthesis_mode": "direct_chunks"
+    },
+    "full_dynamic_claims": {
+      "agent_config_id": 127,
+      "expected_knowledge_base_name": "我的向量知识库",
+      "expected_run_mode": "full",
+      "expected_agenda_mode": "dynamic",
+      "expected_synthesis_mode": "claims"
+    }
+  }
+}

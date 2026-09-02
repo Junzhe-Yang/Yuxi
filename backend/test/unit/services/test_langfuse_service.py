@@ -41,7 +41,7 @@ def test_build_run_context_includes_trace_metadata(monkeypatch):
         agent_id="agent-a",
         request_id="req-1",
         operation="agent_chat_stream",
-        backend_id="ChatbotAgent",
+        agent_config_id=42,
         message_type="text",
         username="alice",
         login_user_id="alice-login",
@@ -53,7 +53,7 @@ def test_build_run_context_includes_trace_metadata(monkeypatch):
     assert run_context.callbacks[0].trace_context == {"trace_id": "trace-req-1"}
     assert run_context.metadata["langfuse_user_id"] == "user-1"
     assert run_context.metadata["langfuse_session_id"] == "thread-1"
-    assert run_context.metadata["backend_id"] == "ChatbotAgent"
+    assert run_context.metadata["agent_config_id"] == "42"
     assert run_context.metadata["department_id"] == "7"
     assert run_context.tags == [
         "yuxi",

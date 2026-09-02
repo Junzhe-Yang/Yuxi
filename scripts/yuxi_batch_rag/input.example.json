@@ -1,0 +1,12 @@
+[
+  {
+    "question": "问题一",
+    "documents": ["标准文档 A"],
+    "answer": "标准答案一"
+  },
+  {
+    "question": "问题二",
+    "documents": ["标准文档 B"],
+    "answer": "标准答案二"
+  }
+]

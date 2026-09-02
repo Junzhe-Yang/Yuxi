@@ -15,7 +15,6 @@
       content-class="workspace-preview-content"
       @close="$emit('close')"
       @save="$emit('save', $event)"
-      @switch-variant="$emit('switchVariant', $event)"
     />
     <div v-else-if="loading" class="preview-state">
       <a-spin />
@@ -41,13 +40,14 @@ defineProps({
   saving: { type: Boolean, default: false }
 })
 
-defineEmits(['close', 'save', 'switchVariant'])
+defineEmits(['close', 'save'])
 </script>
 
 <style scoped lang="less">
 .workspace-preview-pane {
   min-width: 0;
   min-height: 0;
+  border-left: 1px solid var(--gray-100);
   background: var(--gray-0);
   overflow: hidden;
 }

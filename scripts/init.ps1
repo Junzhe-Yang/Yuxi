@@ -148,16 +148,6 @@ foreach ($image in $images) {
     }
 }
 
-$sandboxImage = "enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
-Write-Host "🔄 Pulling ${sandboxImage}..." -ForegroundColor Yellow
-docker pull $sandboxImage
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ Successfully pulled ${sandboxImage}" -ForegroundColor Green
-} else {
-    Write-Host "❌ Failed to pull ${sandboxImage}" -ForegroundColor Red
-    exit 1
-}
-
 Write-Host ""
 Write-Host "🎉 Initialization complete!" -ForegroundColor Green
 Write-Host "==========================" -ForegroundColor Green

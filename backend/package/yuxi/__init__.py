@@ -23,11 +23,11 @@ def get_version():
 
 
 def __getattr__(name: str):
-    if name == "knowledge_base":
+    if name in {"graph_base", "knowledge_base"}:
         knowledge = import_module("yuxi.knowledge")
         return getattr(knowledge, name)
     raise AttributeError(f"module 'yuxi' has no attribute {name!r}")
 
 
 def __dir__():
-    return sorted(set(globals()) | {"knowledge_base"})
+    return sorted(set(globals()) | {"graph_base", "knowledge_base"})

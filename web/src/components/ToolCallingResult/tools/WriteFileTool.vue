@@ -5,7 +5,7 @@
         <span class="note">write_file</span>
         <span class="separator" v-if="filePath">|</span>
         <span class="description code">{{ filePath }}</span>
-        <span class="tag success" v-if="lineCount > 0"> +{{ lineCount }}</span>
+        <span class="tag success"> +{{ lineCount }}</span>
       </div>
     </template>
 

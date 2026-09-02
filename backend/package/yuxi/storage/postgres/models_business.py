@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -14,9 +15,10 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.declarative import declarative_base
 from yuxi.utils.datetime_utils import format_utc_datetime, utc_now_naive
 
 Base = declarative_base()
@@ -54,7 +56,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, nullable=False, unique=True, index=True)  # 显示名称
-    uid = Column(String, nullable=False, unique=True, index=True)  # 登录标识
+    user_id = Column(String, nullable=False, unique=True, index=True)  # 登录ID
     phone_number = Column(String, nullable=True, unique=True, index=True)  # 手机号
     avatar = Column(String, nullable=True)  # 头像URL
     password_hash = Column(String, nullable=False)
@@ -81,13 +83,11 @@ class User(Base):
     # 关联 API Keys
     api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
 
-    agent_env = relationship("AgentEnv", back_populates="user", cascade="all, delete-orphan", uselist=False)
-
     def to_dict(self, include_password: bool = False) -> dict[str, Any]:
         result = {
             "id": self.id,
             "username": self.username,
-            "uid": self.uid,
+            "user_id": self.user_id,
             "phone_number": self.phone_number,
             "avatar": self.avatar,
             "role": self.role,
@@ -131,69 +131,53 @@ class User(Base):
         self.login_locked_until = None
 
 
-class AgentEnv(Base):
-    """用户级 Agent 沙盒环境变量"""
+class AgentConfig(Base):
+    """智能体配置（按部门共享，多份可切换）"""
 
-    __tablename__ = "agent_envs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    uid = Column(String, ForeignKey("users.uid"), nullable=False, unique=True, index=True)
-    env = Column(JSON, nullable=False, default=dict)
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
-
-    user = relationship("User", back_populates="agent_env")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "uid": self.uid,
-            "env": self.env or {},
-            "created_at": format_utc_datetime(self.created_at),
-            "updated_at": format_utc_datetime(self.updated_at),
-        }
-
-
-class Agent(Base):
-    """用户可管理、可授权、可切换的智能体。"""
-
-    __tablename__ = "agents"
+    __tablename__ = "agent_configs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    slug = Column(String(80), nullable=False, unique=True, index=True)
-    backend_id = Column(String(64), nullable=False, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
+    agent_id = Column(String(64), nullable=False, index=True)
 
     name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
+    description = Column(String(255), nullable=True)
     icon = Column(String(255), nullable=True)
 
     pics = Column(JSON, nullable=False, default=list)
+    examples = Column(JSON, nullable=False, default=list)
     config_json = Column(JSON, nullable=False, default=dict)
-    share_config = Column(JSON, nullable=False, default=dict)
 
     is_default = Column(Boolean, nullable=False, default=False, index=True)
-    is_subagent = Column(Boolean, nullable=False, default=False, index=True)
 
-    created_by = Column(String(64), nullable=True, index=True)
+    created_by = Column(String(64), nullable=True)
     updated_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
-    __table_args__ = (Index("uq_agents_default", "is_default", unique=True, postgresql_where=is_default.is_(True)),)
+    __table_args__ = (
+        UniqueConstraint("department_id", "agent_id", "name", name="uq_agent_configs_department_agent_name"),
+        Index(
+            "uq_agent_configs_department_agent_default",
+            "department_id",
+            "agent_id",
+            unique=True,
+            postgresql_where=is_default.is_(True),
+        ),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
-            "slug": self.slug,
-            "agent_id": self.slug,
-            "backend_id": self.backend_id,
+            "department_id": self.department_id,
+            "agent_id": self.agent_id,
             "name": self.name,
             "description": self.description,
             "icon": self.icon,
             "pics": self.pics or [],
+            "examples": self.examples or [],
             "config_json": self.config_json or {},
-            "share_config": self.share_config or {},
             "is_default": bool(self.is_default),
-            "is_subagent": bool(self.is_subagent),
             "created_by": self.created_by,
             "updated_by": self.updated_by,
             "created_at": format_utc_datetime(self.created_at),
@@ -210,17 +194,13 @@ class Skill(Base):
     slug = Column(String(128), nullable=False, unique=True, index=True, comment="技能唯一标识（目录名）")
     name = Column(String(128), nullable=False, comment="技能名称（来自 SKILL.md frontmatter.name）")
     description = Column(Text, nullable=False, comment="技能描述（来自 SKILL.md frontmatter.description）")
-    source_type = Column(
-        String(32), nullable=False, default="upload", index=True, comment="来源: builtin/upload/remote"
-    )
     tool_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的内置工具名列表")
     mcp_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的 MCP 服务名列表")
     skill_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的其他 skill slug 列表")
     dir_path = Column(String(512), nullable=False, comment="技能目录路径（相对 save_dir）")
     version = Column(String(64), nullable=True, comment="技能版本（内置 skill 使用语义化版本）")
+    is_builtin = Column(Boolean, nullable=False, default=False, comment="是否为内置 skill")
     content_hash = Column(String(128), nullable=True, comment="技能目录内容哈希（内置 skill 安装时计算）")
-    share_config = Column(JSON, nullable=False, default=dict, comment="共享权限配置")
-    enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
     created_by = Column(String(64), nullable=True)
     updated_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=utc_now_naive)
@@ -232,15 +212,13 @@ class Skill(Base):
             "slug": self.slug,
             "name": self.name,
             "description": self.description,
-            "source_type": self.source_type,
             "tool_dependencies": self.tool_dependencies or [],
             "mcp_dependencies": self.mcp_dependencies or [],
             "skill_dependencies": self.skill_dependencies or [],
             "dir_path": self.dir_path,
             "version": self.version,
+            "is_builtin": self.is_builtin,
             "content_hash": self.content_hash,
-            "share_config": self.share_config or {},
-            "enabled": bool(self.enabled),
             "created_by": self.created_by,
             "updated_by": self.updated_by,
             "created_at": format_utc_datetime(self.created_at),
@@ -255,7 +233,7 @@ class Conversation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
     thread_id = Column(String(64), unique=True, index=True, nullable=False, comment="Thread ID (UUID)")
-    uid = Column(String(64), index=True, nullable=False, comment="UID")
+    user_id = Column(String(64), index=True, nullable=False, comment="User ID")
     agent_id = Column(String(64), index=True, nullable=False, comment="Agent ID")
     title = Column(String(255), nullable=True, comment="Conversation title")
     status = Column(String(20), default="active", comment="Status: active/archived/deleted")
@@ -275,7 +253,7 @@ class Conversation(Base):
         return {
             "id": self.id,
             "thread_id": self.thread_id,
-            "uid": self.uid,
+            "user_id": self.user_id,
             "agent_id": self.agent_id,
             "title": self.title,
             "status": self.status,
@@ -302,9 +280,6 @@ class Message(Base):
     token_count = Column(Integer, nullable=True, comment="Token count (optional)")
     extra_metadata = Column(JSON, nullable=True, comment="Additional metadata (complete message dump)")
     image_content = Column(Text, nullable=True, comment="Base64 encoded image content for multimodal messages")
-    run_id = Column(String(64), ForeignKey("agent_runs.id"), nullable=True, index=True, comment="Agent run ID")
-    request_id = Column(String(64), nullable=True, index=True, comment="Request ID for idempotency")
-    delivery_status = Column(String(32), nullable=False, default="complete", comment="Message status")
 
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
@@ -322,9 +297,6 @@ class Message(Base):
             "token_count": self.token_count,
             "metadata": self.extra_metadata or {},
             "image_content": self.image_content,
-            "run_id": self.run_id,
-            "request_id": self.request_id,
-            "status": self.delivery_status,
             "tool_calls": [tc.to_dict() for tc in self.tool_calls] if self.tool_calls else [],
         }
 
@@ -434,7 +406,7 @@ class MessageFeedback(Base):
     message_id = Column(
         Integer, ForeignKey("messages.id"), nullable=False, index=True, comment="Message ID being rated"
     )
-    uid = Column(String(64), nullable=False, index=True, comment="UID who provided feedback")
+    user_id = Column(String(64), nullable=False, index=True, comment="User ID who provided feedback")
     rating = Column(String(10), nullable=False, comment="Feedback rating: like or dislike")
     reason = Column(Text, nullable=True, comment="Optional reason for dislike feedback")
     created_at = Column(DateTime, default=utc_now_naive, comment="Feedback creation time")
@@ -446,7 +418,7 @@ class MessageFeedback(Base):
         return {
             "id": self.id,
             "message_id": self.message_id,
-            "uid": self.uid,
+            "user_id": self.user_id,
             "rating": self.rating,
             "reason": self.reason,
             "created_at": format_utc_datetime(self.created_at),
@@ -458,9 +430,8 @@ class MCPServer(Base):
 
     __tablename__ = "mcp_servers"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    slug = Column(String(100), nullable=False, unique=True, index=True, comment="稳定标识")
-    name = Column(String(100), nullable=False, comment="展示名称")
+    # 核心字段 - name 作为主键
+    name = Column(String(100), primary_key=True, comment="服务器名称（唯一标识）")
     description = Column(String(500), nullable=True, comment="描述")
 
     # 连接配置
@@ -470,6 +441,7 @@ class MCPServer(Base):
     args = Column(JSON, nullable=True, comment="命令参数数组（stdio）")
     env = Column(JSON, nullable=True, comment="环境变量（stdio）")
     headers = Column(JSON, nullable=True, comment="HTTP 请求头")
+    auth_config_json = Column(JSON, nullable=True, comment="MCP 鉴权配置")
     timeout = Column(Integer, nullable=True, comment="HTTP 超时时间（秒）")
     sse_read_timeout = Column(Integer, nullable=True, comment="SSE 读取超时（秒）")
 
@@ -491,8 +463,6 @@ class MCPServer(Base):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id,
-            "slug": self.slug,
             "name": self.name,
             "description": self.description,
             "transport": self.transport,
@@ -501,6 +471,7 @@ class MCPServer(Base):
             "args": self.args or [],
             "env": self.env or {},
             "headers": self.headers or {},
+            "auth_config": self.auth_config_json or {},
             "timeout": self.timeout,
             "sse_read_timeout": self.sse_read_timeout,
             "tags": self.tags or [],
@@ -548,6 +519,14 @@ class MCPServer(Base):
                     config["headers"] = json.loads(self.headers)
                 except json.JSONDecodeError:
                     pass
+        if self.auth_config_json:
+            if isinstance(self.auth_config_json, dict):
+                config["auth_config"] = self.auth_config_json
+            elif isinstance(self.auth_config_json, str):
+                try:
+                    config["auth_config"] = json.loads(self.auth_config_json)
+                except json.JSONDecodeError:
+                    pass
         if self.timeout is not None:
             config["timeout"] = self.timeout
         if self.sse_read_timeout is not None:
@@ -555,6 +534,57 @@ class MCPServer(Base):
         if self.disabled_tools:
             config["disabled_tools"] = self.disabled_tools
         return config
+
+
+class MCPConnection(Base):
+    """MCP 服务器连接凭据模型"""
+
+    __tablename__ = "mcp_connections"
+    __table_args__ = (
+        UniqueConstraint("server_name", "scope_type", "scope_id", name="uq_mcp_connections_server_scope"),
+        CheckConstraint("scope_type IN ('system', 'department', 'user')", name="ck_mcp_connections_scope_type"),
+        CheckConstraint(
+            "status IN ('active', 'disabled', 'reauth_required', 'invalid')", name="ck_mcp_connections_status"
+        ),
+        Index("idx_mcp_connections_status", "status"),
+        Index("idx_mcp_connections_subject", "external_subject"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_name = Column(String(100), ForeignKey("mcp_servers.name", ondelete="CASCADE"), nullable=False)
+    scope_type = Column(String(16), nullable=False, comment="system/department/user")
+    scope_id = Column(String(64), nullable=False, comment="作用域标识（system 为 global）")
+    display_name = Column(String(128), nullable=True, comment="显示名称")
+    external_subject = Column(String(255), nullable=True, comment="外部服务用户/应用标识")
+    status = Column(String(32), nullable=False, default="active", comment="连接状态")
+    credential_blob = Column(Text, nullable=True, comment="加密后的凭据数据")
+    meta_json = Column(JSON, nullable=False, default=dict, comment="扩展元信息")
+    created_by = Column(String(64), nullable=True)
+    updated_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="更新时间")
+
+    server = relationship("MCPServer")
+
+    def to_dict(self, *, include_credentials: bool = False) -> dict[str, Any]:
+        payload = {
+            "id": self.id,
+            "server_name": self.server_name,
+            "scope_type": self.scope_type,
+            "scope_id": self.scope_id,
+            "display_name": self.display_name,
+            "external_subject": self.external_subject,
+            "status": self.status,
+            "meta_json": self.meta_json or {},
+            "has_credentials": bool(self.credential_blob),
+            "created_by": self.created_by,
+            "updated_by": self.updated_by,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+        if include_credentials:
+            payload["credential_blob"] = self.credential_blob
+        return payload
 
 
 class ModelProvider(Base):
@@ -661,6 +691,53 @@ class TaskRecord(Base):
         return data
 
 
+class SubAgent(Base):
+    """SubAgent 模型 - 用于动态配置子智能体"""
+
+    __tablename__ = "subagents"
+
+    name = Column(String(128), primary_key=True, comment="唯一标识")
+    description = Column(Text, nullable=False, comment="描述")
+    system_prompt = Column(Text, nullable=False, comment="系统提示词")
+    tools = Column(JSON, nullable=False, default=list, comment="工具名称列表")
+    model = Column(String(128), nullable=True, comment="可选的模型覆盖")
+    enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
+
+    is_builtin = Column(Boolean, nullable=False, default=False, comment="是否内置")
+
+    created_by = Column(String(100), nullable=True)
+    updated_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "system_prompt": self.system_prompt,
+            "tools": self.tools or [],
+            "model": self.model,
+            "enabled": bool(self.enabled),
+            "is_builtin": bool(self.is_builtin),
+            "created_by": self.created_by,
+            "updated_by": self.updated_by,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+
+    def to_subagent_spec(self) -> dict[str, Any]:
+        """转换为 SubAgentMiddleware 需要的 spec 格式"""
+        spec = {
+            "name": self.name,
+            "description": self.description,
+            "system_prompt": self.system_prompt,
+            "tools": self.tools or [],
+        }
+        if self.model:
+            spec["model"] = self.model
+        return spec
+
+
 class APIKey(Base):
     """API Key 模型"""
 
@@ -716,7 +793,7 @@ class AgentRun(Base):
     id = Column(String(64), primary_key=True, comment="Run ID (UUID)")
     thread_id = Column(String(64), index=True, nullable=False, comment="Thread ID")
     agent_id = Column(String(64), index=True, nullable=False, comment="Agent ID")
-    uid = Column(String(64), index=True, nullable=False, comment="UID")
+    user_id = Column(String(64), index=True, nullable=False, comment="User ID")
     status = Column(
         String(32),
         index=True,
@@ -725,17 +802,6 @@ class AgentRun(Base):
         comment="Run status: pending/running/completed/failed/cancel_requested/cancelled/interrupted",
     )
     request_id = Column(String(64), unique=True, index=True, nullable=False, comment="Idempotency request ID")
-    conversation_id = Column(
-        Integer, ForeignKey("conversations.id"), nullable=True, index=True, comment="Conversation ID"
-    )
-    parent_run_id = Column(String(64), nullable=True, index=True, comment="Parent interrupted run ID")
-    parent_agent_run_id = Column(String(64), nullable=True, index=True, comment="Parent agent run ID")
-    run_type = Column(String(32), nullable=False, default="chat", comment="Run type: chat/resume/subagent")
-    resume_request_id = Column(String(64), nullable=True, index=True, comment="Resume idempotency request ID")
-    input_message_id = Column(Integer, nullable=True, comment="Input message ID")
-    output_message_id = Column(Integer, nullable=True, comment="Output message ID")
-    checkpoint_thread_id = Column(String(64), nullable=True, comment="LangGraph checkpoint thread ID")
-    last_event_id = Column(String(64), nullable=True, comment="Last Redis stream event ID")
     input_payload = Column(JSON, nullable=False, default=dict, comment="Original input payload")
     error_type = Column(String(64), nullable=True, comment="Error type")
     error_message = Column(Text, nullable=True, comment="Error message")
@@ -749,18 +815,9 @@ class AgentRun(Base):
             "id": self.id,
             "thread_id": self.thread_id,
             "agent_id": self.agent_id,
-            "uid": self.uid,
+            "user_id": self.user_id,
             "status": self.status,
             "request_id": self.request_id,
-            "conversation_id": self.conversation_id,
-            "parent_run_id": self.parent_run_id,
-            "parent_agent_run_id": self.parent_agent_run_id,
-            "run_type": self.run_type,
-            "resume_request_id": self.resume_request_id,
-            "input_message_id": self.input_message_id,
-            "output_message_id": self.output_message_id,
-            "checkpoint_thread_id": self.checkpoint_thread_id,
-            "last_event_id": self.last_event_id,
             "input_payload": self.input_payload or {},
             "error_type": self.error_type,
             "error_message": self.error_message,

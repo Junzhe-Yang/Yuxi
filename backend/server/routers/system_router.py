@@ -37,9 +37,7 @@ async def get_config(current_user: User = Depends(get_admin_user)):
 @system.post("/config")
 async def update_config_single(key=Body(...), value=Body(...), current_user: User = Depends(get_admin_user)) -> dict:
     """更新单个配置项"""
-    if not hasattr(config, key):
-        raise HTTPException(status_code=400, detail=f"未知配置项: {key}")
-    setattr(config, key, value)
+    config[key] = value
     config.save()
     return config.dump_config()
 
@@ -68,7 +66,7 @@ async def get_system_logs(levels: str | None = None, current_user: User = Depend
             level_filter = set(level.strip().upper() for level in levels.split(",") if level.strip())
 
         #  修复 GBK 编码报错：强制 utf-8 读取，忽略错误
-        async with aiofiles.open(LOG_FILE, encoding="utf-8", errors="ignore") as f:
+        async with aiofiles.open(LOG_FILE, mode='r', encoding='utf-8', errors='ignore') as f:
             # 读取最后1000行
             lines = []
             async for line in f:
@@ -93,7 +91,6 @@ async def get_system_logs(levels: str | None = None, current_user: User = Depend
     except Exception as e:
         logger.error(f"获取系统日志失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取系统日志失败: {str(e)}")
-
 
 # =============================================================================
 # === 信息管理分组 ===
@@ -161,13 +158,13 @@ async def check_ocr_services_health(current_user: User = Depends(get_admin_user)
     检查所有OCR服务的健康状态
     返回各个OCR服务的可用性信息
     """
-    from yuxi.knowledge.parser.factory import DocumentProcessorFactory
+    from yuxi.plugins.parser.factory import DocumentProcessorFactory
 
     try:
         # 使用统一的健康检查接口
         health_status = await DocumentProcessorFactory.check_all_health_async()
 
-        # 格式化健康检查响应
+        # 转换为旧格式以保持API兼容性
         formatted_status = {}
         for service_name, health_info in health_status.items():
             formatted_status[service_name] = {
@@ -194,3 +191,22 @@ async def check_ocr_services_health(current_user: User = Depends(get_admin_user)
             "services": {},
             "message": f"OCR健康检查失败: {str(e)}",
         }
+
+
+# =============================================================================
+# === 自定义供应商管理分组 ===
+# =============================================================================
+
+
+@system.get("/custom-providers")
+async def get_custom_providers(current_user: User = Depends(get_admin_user)):
+    """获取所有自定义供应商"""
+    try:
+        custom_providers = config.get_custom_providers()
+        return {
+            "providers": {provider: info.model_dump() for provider, info in custom_providers.items()},
+            "message": "success",
+        }
+    except Exception as e:
+        logger.error(f"获取自定义供应商失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取自定义供应商失败: {str(e)}")

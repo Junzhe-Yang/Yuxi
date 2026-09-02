@@ -3,9 +3,9 @@ import importlib
 import inspect
 from pathlib import Path
 
+from server.utils.singleton import SingletonMeta
 from yuxi.agents.base import BaseAgent
 from yuxi.utils import logger
-from yuxi.utils.singleton import SingletonMeta
 
 
 class AgentManager(metaclass=SingletonMeta):

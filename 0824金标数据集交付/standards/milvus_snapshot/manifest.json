@@ -1,0 +1,1742 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "db_id": "kb_eacd27936e394b90cb122618d075ba7f",
+  "knowledge_name": "用药助手-md",
+  "kb_type": "milvus",
+  "started_at": "2026-08-12T12:47:58.194624+00:00",
+  "finished_at": "2026-08-12T12:47:59.545072+00:00",
+  "collection_name": "kb_eacd27936e394b90cb122618d075ba7f",
+  "output_fields": [
+    "id",
+    "content",
+    "source",
+    "chunk_id",
+    "file_id",
+    "chunk_index"
+  ],
+  "chunks_file": "chunks.jsonl",
+  "chunks_file_sha256": "ddb64eb5b711ed592112cc6939e7118696e7c4c23246a8664a0ea350431b3527",
+  "warnings": [],
+  "total_chunks": 1837,
+  "milvus_num_entities_before": 1837,
+  "milvus_num_entities_after": 1837,
+  "milvus_num_entities_changed_during_export": false,
+  "metadata_file_count": 29,
+  "files_with_chunks": 29,
+  "orphan_file_ids": [],
+  "indexed_files_without_chunks": [],
+  "files": [
+    {
+      "file_id": "file_074069",
+      "filename": "【用药助手】中国帕金森病治疗指南（第四版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "a9026ebd8d1ef75c96e8f1bc594be45a69b1911b031d2ae9dd8fe1d0ec7d2b36",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 50,
+      "min_chunk_index": 0,
+      "max_chunk_index": 49,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国帕金森病治疗指南（第四版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_118b71",
+      "filename": "【用药助手】中国老年2型糖尿病防治临床指南（2026年版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "20ac8206822566c5684eb9312c5280ee4b37b518ef2c61c63465cb71a4e6fb3e",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 218,
+      "min_chunk_index": 0,
+      "max_chunk_index": 217,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年2型糖尿病防治临床指南（2026年版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_1b1bac",
+      "filename": "【用药助手】老年人血脂异常管理中国专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "f45334df7f7b8f844f8a487aee77ebe7d0c6838cc584ea389576ffb776f9033c",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 104,
+      "min_chunk_index": 0,
+      "max_chunk_index": 103,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人血脂异常管理中国专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_25ed8b",
+      "filename": "【用药助手】老年银屑病诊疗与康复专家共识（2026版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "419f524909cab77c2d42d4b20fe466146f5f51f3a6fbdbaa6847937f83bbedb9",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 49,
+      "min_chunk_index": 0,
+      "max_chunk_index": 48,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年银屑病诊疗与康复专家共识（2026版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_2f47be",
+      "filename": "【用药助手】老年髋部骨折诊疗与管理指南（2022年版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "eb575a88b8a38f8d441f3b0999295c7a8c973a4aae2cf6ae5c3917c6cde3fb8f",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 30,
+      "min_chunk_index": 0,
+      "max_chunk_index": 29,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年髋部骨折诊疗与管理指南（2022年版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_39214c",
+      "filename": "【用药助手】中国老年骨质疏松症诊疗指南（2023）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "7e8027b1f8191bbdada3ec5ac6c2e5fa7659e0ffeda86d5050a9ea83a067390a",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 79,
+      "min_chunk_index": 0,
+      "max_chunk_index": 78,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年骨质疏松症诊疗指南（2023）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_3f8e70",
+      "filename": "【用药助手】老年人慢性心力衰竭诊治中国专家共识(2021).pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "19730d3179abe48c8d3ffa19baee784d8f3e2eeaf573726ebfe25728d4930fae",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 46,
+      "min_chunk_index": 0,
+      "max_chunk_index": 45,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人慢性心力衰竭诊治中国专家共识(2021).pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_499ef2",
+      "filename": "【用药助手】老年肺炎临床诊断与治疗专家共识（2024年版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "63d922088db124e59b6c8398e5ae5831512c476a942a5f1a71dd86844f5eac57",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 59,
+      "min_chunk_index": 0,
+      "max_chunk_index": 58,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年肺炎临床诊断与治疗专家共识（2024年版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_68fb16",
+      "filename": "【用药助手】中国老年高血压管理指南（2023）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "aee895bd128763da69881f0041f23311dbdd90f944a284b742575217c4db4914",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 142,
+      "min_chunk_index": 0,
+      "max_chunk_index": 141,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年高血压管理指南（2023）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_79b679",
+      "filename": "【用药助手】老年人良性前列腺增生症_下尿路症状药物治疗共识（2015）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "a861c981d6ef789dff04be680a700e63d60521acc4a5a8a45dc232491a7cfc6b",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 31,
+      "min_chunk_index": 0,
+      "max_chunk_index": 30,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人良性前列腺增生症_下尿路症状药物治疗共识（2015）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_7edde3",
+      "filename": "【用药助手】中国老年人代谢综合征药物治疗专家共识(2022).pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "8199f7e327d897b1bf955232442e53cfa235164fa2ddfccc52c2eda6dbf15d44",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 79,
+      "min_chunk_index": 0,
+      "max_chunk_index": 78,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年人代谢综合征药物治疗专家共识(2022).pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_84a7f1",
+      "filename": "【用药助手】老年心房颤动诊治中国专家共识（2024）.md",
+      "status": "indexed",
+      "content_hash": "0303a3d90a12aed38828c6401a9414362ae2146de39b7e41d8a42b6f08052746",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 76,
+      "min_chunk_index": 0,
+      "max_chunk_index": 75,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年心房颤动诊治中国专家共识（2024）.md"
+      ]
+    },
+    {
+      "file_id": "file_9095e9",
+      "filename": "【用药助手】慢性便秘基层诊疗指南（2019年）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "0f635d703c14cfa570eab130d4f4ebc7efb18a01e32ee4bbf4c1a2a26cf90ecd",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 33,
+      "min_chunk_index": 0,
+      "max_chunk_index": 32,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】慢性便秘基层诊疗指南（2019年）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_962e2e",
+      "filename": "Beers标准2023译文.md",
+      "status": "indexed",
+      "content_hash": "6388b0a167f92271c134a54c6bec9d975c7f5889d9b5134bb6cf86f2403522a3",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 61,
+      "min_chunk_index": 0,
+      "max_chunk_index": 60,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "Beers标准2023译文.md"
+      ]
+    },
+    {
+      "file_id": "file_a2b560",
+      "filename": "【用药助手】老年人胃食管反流病中国专家共识(2023).pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "6914761f6364efd0b0b8ec6cbcbbf38e1cbdbcd343d445c343f7b38a08b2e4b6",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 56,
+      "min_chunk_index": 0,
+      "max_chunk_index": 55,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人胃食管反流病中国专家共识(2023).pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_a5dd07",
+      "filename": "Beers_Alternatives_2023_术语复核修订版.md",
+      "status": "indexed",
+      "content_hash": "dda79ae95d0089d03e28e3982e3809e48d9a5eadde1d8a9f755fc2eaa4170e22",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 56,
+      "min_chunk_index": 0,
+      "max_chunk_index": 55,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "Beers_Alternatives_2023_术语复核修订版.md"
+      ]
+    },
+    {
+      "file_id": "file_b31825",
+      "filename": "【用药助手】老年带状疱疹诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "12dab2a219e42503fc6e09e6f162c876b596af7f24aea1f0eb75223653df228c",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 32,
+      "min_chunk_index": 0,
+      "max_chunk_index": 31,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年带状疱疹诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_ba64f1",
+      "filename": "【用药助手】老年上消化道出血急诊诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "e5bb9de9b415331bf90fdf9e98eae7d9a6306c2dc7326e68c235a3ac066873eb",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 43,
+      "min_chunk_index": 0,
+      "max_chunk_index": 42,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年上消化道出血急诊诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_c6bbd9",
+      "filename": "【用药助手】老年弥漫大B细胞淋巴瘤诊断与治疗中国专家共识（2024年版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "d4b30026b181617120be6f387bfe27b08ce0f3c64cc546a761e8f8b6da98f0c1",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 32,
+      "min_chunk_index": 0,
+      "max_chunk_index": 31,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年弥漫大B细胞淋巴瘤诊断与治疗中国专家共识（2024年版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_d6f17b",
+      "filename": "【用药助手】老年慢性肾脏病综合管理指南（2025年版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "73f274698c0d20e74f59263146ebba671aab3285cf14a2fe9de68cba5ac265d9",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 98,
+      "min_chunk_index": 0,
+      "max_chunk_index": 97,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年慢性肾脏病综合管理指南（2025年版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_d7a41a",
+      "filename": "【用药助手】老年患者低钠血症的诊治中国专家建议.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "18acea21e017bc7731dfa91e9e61d0632e57ce20258c49d18e58b2e8a0ea15fe",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 45,
+      "min_chunk_index": 0,
+      "max_chunk_index": 44,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年患者低钠血症的诊治中国专家建议.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_deb7ad",
+      "filename": "【用药助手】老年睡眠呼吸暂停综合征诊断评估专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "d255e45f177b3ac2a5d8ed07918cbf33e82e415f18c31f03c161e81f8ccf4933",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 49,
+      "min_chunk_index": 0,
+      "max_chunk_index": 48,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年睡眠呼吸暂停综合征诊断评估专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_e1ef73",
+      "filename": "【用药助手】中国老年心肺复苏急诊专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "56954cb7208c5e6d540a723c61678f40b7a5dcb08e833992ad6a7f135bace8fb",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 28,
+      "min_chunk_index": 0,
+      "max_chunk_index": 27,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年心肺复苏急诊专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_e40444",
+      "filename": "【用药助手】中国老年慢性阻塞性肺疾病临床诊治实践指南.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "68ecb5f5979477444a922f065c2dbdb12dc108d9ab1ed04872511cb310a8f2ff",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 86,
+      "min_chunk_index": 0,
+      "max_chunk_index": 85,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国老年慢性阻塞性肺疾病临床诊治实践指南.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_e45eef",
+      "filename": "【用药助手】老年肺结核诊断与治疗专家共识（2023版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "70e2b8d72ca0f019f583f24200f30e5cd8af1399aaf9785e99dcae1964124a93",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 70,
+      "min_chunk_index": 0,
+      "max_chunk_index": 69,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年肺结核诊断与治疗专家共识（2023版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_e7f32e",
+      "filename": "【用药助手】老年人消化不良的评估与处理中国专家共识（2026版）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "3db817c8cdcc8c8572ae85d71070312c5587e1b50d3a4d40a744ad9b32e01e3d",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 53,
+      "min_chunk_index": 0,
+      "max_chunk_index": 52,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人消化不良的评估与处理中国专家共识（2026版）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_eb1fa7",
+      "filename": "【用药助手】老年人头晕_眩晕诊疗多学科专家共识（2021）.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "008a3eb472ac331c46aad355f941966dae698910094e6225f9a0171da733455d",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 47,
+      "min_chunk_index": 0,
+      "max_chunk_index": 46,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年人头晕_眩晕诊疗多学科专家共识（2021）.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_f641a4",
+      "filename": "【用药助手】中国阿尔茨海默病痴呆诊疗指南(2020年版).pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "0d3342e0e0e5cc1dafe433fb5b7ddc5c65de98b9a97714d7eaefeca22dd891fa",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 59,
+      "min_chunk_index": 0,
+      "max_chunk_index": 58,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】中国阿尔茨海默病痴呆诊疗指南(2020年版).pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    },
+    {
+      "file_id": "file_fe97a3",
+      "filename": "【用药助手】老年期抑郁障碍诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md",
+      "status": "indexed",
+      "content_hash": "0804c447519a7b207712d0d340619de051388177efe14c980f6aabf05ef5b9ab",
+      "processing_params": {
+        "auto_index": true,
+        "chunk_size": 1000,
+        "enable_ocr": "disable",
+        "content_type": "file",
+        "image_bucket": "public",
+        "image_prefix": "kb_eacd27936e394b90cb122618d075ba7f/kb-images",
+        "qa_separator": "",
+        "chunk_overlap": 200,
+        "chunk_preset_id": "general",
+        "chunk_parser_config": {
+          "table_context_size": 0,
+          "image_context_size": 0,
+          "layout_recognize": "DeepDOC",
+          "chunk_token_num": 1000,
+          "delimiter": "\n",
+          "auto_keywords": 0,
+          "auto_questions": 0,
+          "html4excel": false,
+          "topn_tags": 3,
+          "raptor": {
+            "use_raptor": true,
+            "prompt": "Please summarize the following paragraphs. Be careful with the numbers, do not make things up. Paragraphs as following:\n      {cluster_content}\nThe above is the content you need to summarize.",
+            "max_token": 256,
+            "threshold": 0.1,
+            "max_cluster": 64,
+            "random_seed": 0
+          },
+          "graphrag": {
+            "use_graphrag": true,
+            "entity_types": [
+              "organization",
+              "person",
+              "geo",
+              "event",
+              "category"
+            ],
+            "method": "light"
+          },
+          "overlapped_percent": 20
+        },
+        "chunk_engine_version": "ragflow_like_v1"
+      },
+      "metadata_found": true,
+      "chunk_count": 26,
+      "min_chunk_index": 0,
+      "max_chunk_index": 25,
+      "duplicate_chunk_indices": [],
+      "missing_chunk_index_count": 0,
+      "missing_chunk_index_sample": [],
+      "sources": [
+        "【用药助手】老年期抑郁障碍诊疗专家共识.pdf_by_PaddleOCR-VL-1.6.md"
+      ]
+    }
+  ]
+}

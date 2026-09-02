@@ -8,51 +8,10 @@
           管理系统用户，请谨慎操作。删除用户后该用户将无法登录系统。
         </p>
       </div>
-      <div class="header-actions">
-        <a-button
-          @click="handleRefresh"
-          :loading="userManagement.refreshing"
-          title="刷新"
-          class="refresh-btn lucide-icon-btn"
-        >
-          <template #icon>
-            <RefreshCw :size="16" :class="{ spin: userManagement.refreshing }" />
-          </template>
-        </a-button>
-        <a-button type="primary" @click="showAddUserModal" class="add-btn lucide-icon-btn">
-          <template #icon><Plus :size="16" /></template>
-          添加用户
-        </a-button>
-      </div>
-    </div>
-
-    <div class="filter-section">
-      <a-input
-        v-model:value="userManagement.searchKeyword"
-        class="search-input"
-        placeholder="搜索用户名 / ID / 手机号"
-        allow-clear
-      >
-        <template #prefix><Search :size="16" /></template>
-      </a-input>
-      <div class="filter-actions">
-        <a-select v-model:value="userManagement.departmentFilter" class="filter-select">
-          <a-select-option value="">全部部门</a-select-option>
-          <a-select-option
-            v-for="dept in departmentFilterOptions"
-            :key="dept.value"
-            :value="dept.value"
-          >
-            {{ dept.label }}
-          </a-select-option>
-        </a-select>
-        <a-select v-model:value="userManagement.roleFilter" class="filter-select">
-          <a-select-option value="">全部权限</a-select-option>
-          <a-select-option value="superadmin">超级管理员</a-select-option>
-          <a-select-option value="admin">管理员</a-select-option>
-          <a-select-option value="user">普通用户</a-select-option>
-        </a-select>
-      </div>
+      <a-button type="primary" @click="showAddUserModal" class="add-btn lucide-icon-btn">
+        <template #icon><Plus :size="16" /></template>
+        添加用户
+      </a-button>
     </div>
 
     <!-- 主内容区域 -->
@@ -63,27 +22,23 @@
         </div>
 
         <div class="cards-container">
-          <div v-if="filteredUsers.length === 0" class="empty-state">
-            <a-empty
-              :description="userManagement.users.length === 0 ? '暂无用户数据' : '没有匹配的用户'"
-            />
+          <div v-if="userManagement.users.length === 0" class="empty-state">
+            <a-empty description="暂无用户数据" />
           </div>
           <div v-else class="user-cards-grid">
-            <div v-for="user in paginatedUsers" :key="user.id" class="user-card">
+            <div v-for="user in userManagement.users" :key="user.id" class="user-card">
               <div class="card-header">
                 <div class="user-info-main">
                   <div class="user-avatar">
-                    <FallbackAvatar
+                    <img
+                      v-if="user.avatar"
                       :src="user.avatar"
-                      :default-src="getUserDefaultAvatarSrc(user)"
-                      :name="user.username"
-                      :seed="user.uid || user.username"
-                      kind="user"
-                      :size="40"
-                      shape="circle"
                       :alt="user.username"
                       class="avatar-img"
                     />
+                    <div v-else class="avatar-placeholder">
+                      {{ user.username.charAt(0).toUpperCase() }}
+                    </div>
                   </div>
                   <div class="user-info-content">
                     <div class="name-tag-row">
@@ -106,44 +61,9 @@
                         </span>
                       </div>
                     </div>
-                    <div class="user-id-row">ID: {{ user.uid || '-' }}</div>
+                    <div class="user-id-row">ID: {{ user.user_id || '-' }}</div>
                   </div>
                 </div>
-
-                <a-dropdown :trigger="['click']" placement="bottomRight">
-                  <template #overlay>
-                    <a-menu>
-                      <a-menu-item key="edit" @click.stop="showEditUserModal(user)">
-                        <span class="user-card-menu-item">
-                          <SquarePen :size="14" />
-                          编辑用户
-                        </span>
-                      </a-menu-item>
-                      <a-menu-item
-                        key="delete"
-                        :disabled="isUserDeleteDisabled(user)"
-                        @click.stop="confirmDeleteUser(user)"
-                      >
-                        <span
-                          class="user-card-menu-item"
-                          :class="{ danger: !isUserDeleteDisabled(user) }"
-                        >
-                          <Trash2 :size="14" />
-                          删除用户
-                        </span>
-                      </a-menu-item>
-                    </a-menu>
-                  </template>
-                  <a-button
-                    type="text"
-                    size="small"
-                    class="card-menu-trigger lucide-icon-btn"
-                    aria-label="用户操作"
-                    @click.stop
-                  >
-                    <MoreVertical :size="16" />
-                  </a-button>
-                </a-dropdown>
               </div>
 
               <div class="card-content">
@@ -160,17 +80,37 @@
                   <span class="info-value time-text">{{ formatTime(user.last_login) }}</span>
                 </div>
               </div>
+
+              <div class="card-actions">
+                <a-tooltip title="编辑用户">
+                  <a-button
+                    type="text"
+                    size="small"
+                    @click="showEditUserModal(user)"
+                    class="action-btn lucide-icon-btn"
+                  >
+                    <Pencil :size="14" />
+                    <span>编辑</span>
+                  </a-button>
+                </a-tooltip>
+                <a-tooltip title="删除用户">
+                  <a-button
+                    type="text"
+                    size="small"
+                    danger
+                    @click="confirmDeleteUser(user)"
+                    :disabled="
+                      user.id === userStore.userId ||
+                      (user.role === 'superadmin' && userStore.userRole !== 'superadmin')
+                    "
+                    class="action-btn lucide-icon-btn"
+                  >
+                    <Trash2 :size="14" />
+                    <span>删除</span>
+                  </a-button>
+                </a-tooltip>
+              </div>
             </div>
-          </div>
-          <div v-if="filteredUsers.length > userManagement.pageSize" class="pagination-section">
-            <a-pagination
-              v-model:current="userManagement.currentPage"
-              v-model:page-size="userManagement.pageSize"
-              :total="filteredUsers.length"
-              :page-size-options="['20', '50', '100']"
-              show-size-changer
-              size="small"
-            />
           </div>
         </div>
       </a-spin>
@@ -192,17 +132,17 @@
           <a-input
             v-model:value="userManagement.form.username"
             placeholder="请输入用户名（2-20个字符）"
-            @blur="validateAndGenerateUid"
+            @blur="validateAndGenerateUserId"
             :maxlength="20"
           />
           <div v-if="userManagement.form.usernameError" class="error-text">
             {{ userManagement.form.usernameError }}
           </div>
           <div
-            v-if="userManagement.form.generatedUid && !userManagement.editMode"
+            v-if="userManagement.form.generatedUserId && !userManagement.editMode"
             class="help-text"
           >
-            登录ID：{{ userManagement.form.generatedUid }}，此ID将用于登录，根据用户名自动生成
+            登录ID：{{ userManagement.form.generatedUserId }}，此ID将用于登录，根据用户名自动生成
           </div>
         </a-form-item>
 
@@ -275,37 +215,19 @@
 </template>
 
 <script setup>
-import { reactive, onMounted, watch, computed } from 'vue'
+import { reactive, onMounted, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { departmentApi } from '@/apis'
-import {
-  Plus,
-  SquarePen,
-  Trash2,
-  User,
-  UserLock,
-  UserStar,
-  RefreshCw,
-  Search,
-  MoreVertical
-} from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, User, UserLock, UserStar } from 'lucide-vue-next'
 import { formatDateTime } from '@/utils/time'
-import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 const userStore = useUserStore()
 
 // 用户管理相关状态
 const userManagement = reactive({
   loading: false,
-  refreshing: false,
   users: [],
-  searchKeyword: '',
-  departmentFilter: '',
-  roleFilter: '',
-  currentPage: 1,
-  pageSize: 50,
   error: null,
   modalVisible: false,
   modalTitle: '添加用户',
@@ -313,7 +235,7 @@ const userManagement = reactive({
   editUserId: null,
   form: {
     username: '',
-    generatedUid: '', // 自动生成的uid
+    generatedUserId: '', // 自动生成的user_id
     phoneNumber: '', // 手机号
     password: '',
     confirmPassword: '',
@@ -330,61 +252,6 @@ const departmentManagement = reactive({
   departments: []
 })
 
-const departmentFilterOptions = computed(() => {
-  const options = new Map()
-
-  departmentManagement.departments.forEach((dept) => {
-    options.set(String(dept.id), {
-      value: String(dept.id),
-      label: dept.name
-    })
-  })
-
-  userManagement.users.forEach((user) => {
-    const departmentId = user.department_id
-    const departmentName = user.department_name
-
-    if (departmentId == null && !departmentName) return
-
-    const value = String(departmentId ?? departmentName)
-
-    if (!options.has(value)) {
-      options.set(value, {
-        value,
-        label: departmentName || `部门 ${departmentId}`
-      })
-    }
-  })
-
-  return [...options.values()]
-})
-
-const filteredUsers = computed(() => {
-  const keyword = userManagement.searchKeyword.trim().toLowerCase()
-
-  return userManagement.users.filter((user) => {
-    const matchesKeyword =
-      !keyword ||
-      [user.username, user.uid, user.phone_number].some((value) =>
-        String(value || '')
-          .toLowerCase()
-          .includes(keyword)
-      )
-    const matchesDepartment =
-      !userManagement.departmentFilter ||
-      String(user.department_id ?? user.department_name ?? '') === userManagement.departmentFilter
-    const matchesRole = !userManagement.roleFilter || user.role === userManagement.roleFilter
-
-    return matchesKeyword && matchesDepartment && matchesRole
-  })
-})
-
-const paginatedUsers = computed(() => {
-  const pageSize = Number(userManagement.pageSize)
-  const start = (userManagement.currentPage - 1) * pageSize
-  return filteredUsers.value.slice(start, start + pageSize)
-})
-
 // 获取部门列表
 const fetchDepartments = async () => {
   if (!userStore.isSuperAdmin) return // 普通管理员不需要获取所有部门列表
@@ -396,26 +263,26 @@ const fetchDepartments = async () => {
   }
 }
 
-// 添加验证用户名并生成uid的函数
-const validateAndGenerateUid = async () => {
+// 添加验证用户名并生成user_id的函数
+const validateAndGenerateUserId = async () => {
   const username = userManagement.form.username.trim()
 
   // 清空之前的错误和生成的ID
   userManagement.form.usernameError = ''
-  userManagement.form.generatedUid = ''
+  userManagement.form.generatedUserId = ''
 
   if (!username) {
     return
   }
 
-  // 在编辑模式下，不需要重新生成uid
+  // 在编辑模式下，不需要重新生成user_id
   if (userManagement.editMode) {
     return
   }
 
   try {
-    const result = await userStore.validateUsernameAndGenerateUid(username)
-    userManagement.form.generatedUid = result.uid
+    const result = await userStore.validateUsernameAndGenerateUserId(username)
+    userManagement.form.generatedUserId = result.user_id
   } catch (error) {
     userManagement.form.usernameError = error.message || '用户名验证失败'
   }
@@ -456,31 +323,8 @@ watch(
   }
 )
 
-watch(
-  () => [userManagement.searchKeyword, userManagement.departmentFilter, userManagement.roleFilter],
-  () => {
-    userManagement.currentPage = 1
-  }
-)
-
-watch(
-  () => filteredUsers.value.length,
-  (total) => {
-    const maxPage = Math.max(1, Math.ceil(total / Number(userManagement.pageSize)))
-    if (userManagement.currentPage > maxPage) {
-      userManagement.currentPage = maxPage
-    }
-  }
-)
-
 // 格式化时间显示
 const formatTime = (timeStr) => formatDateTime(timeStr)
-
-const getUserDefaultAvatarSrc = (user) => (user.uid ? generatePixelAvatar(user.uid) : '')
-
-const isUserDeleteDisabled = (user) =>
-  user.id === userStore.userId ||
-  (user.role === 'superadmin' && userStore.userRole !== 'superadmin')
 
 // 获取用户列表
 const fetchUsers = async () => {
@@ -497,21 +341,6 @@ const fetchUsers = async () => {
   }
 }
 
-// 刷新用户和部门信息
-const handleRefresh = async () => {
-  if (userManagement.refreshing) return
-  userManagement.refreshing = true
-  try {
-    await Promise.all([fetchUsers(), fetchDepartments()])
-    message.success('刷新成功')
-  } catch (error) {
-    console.error('刷新失败:', error)
-    message.error('刷新失败')
-  } finally {
-    userManagement.refreshing = false
-  }
-}
-
 // 打开添加用户模态框
 const showAddUserModal = () => {
   userManagement.modalTitle = '添加用户'
@@ -519,7 +348,7 @@ const showAddUserModal = () => {
   userManagement.editUserId = null
   userManagement.form = {
     username: '',
-    generatedUid: '',
+    generatedUserId: '',
     phoneNumber: '',
     password: '',
     confirmPassword: '',
@@ -539,7 +368,7 @@ const showEditUserModal = (user) => {
   userManagement.editUserId = user.id
   userManagement.form = {
     username: user.username,
-    generatedUid: user.uid || '', // 编辑模式显示现有的uid
+    generatedUserId: user.user_id || '', // 编辑模式显示现有的user_id
     phoneNumber: user.phone_number || '',
     password: '',
     confirmPassword: '',
@@ -702,113 +531,6 @@ onMounted(async () => {
 
 <style lang="less" scoped>
 .user-management {
-  .header-section {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 16px;
-    margin-bottom: 16px;
-
-    .header-content {
-      flex: 1;
-      min-width: 0;
-
-      .section-title {
-        font-size: 16px;
-        font-weight: 500;
-        color: var(--gray-900);
-        line-height: 1.4;
-        margin: 12px 0 12px;
-      }
-
-      .section-description {
-        font-size: 14px;
-        color: var(--gray-600);
-        line-height: 1.4;
-        margin: 0;
-      }
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .refresh-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--gray-25);
-        }
-
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-
-        :deep(.ant-btn-loading-icon) {
-          color: var(--gray-600);
-        }
-      }
-    }
-  }
-
-  .filter-section {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-
-    .search-input {
-      width: 300px;
-      max-width: 100%;
-
-      :deep(.ant-input-prefix) {
-        color: var(--gray-500);
-        margin-right: 6px;
-      }
-    }
-
-    .filter-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-left: auto;
-    }
-
-    .filter-select {
-      width: 150px;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .filter-section {
-      align-items: stretch;
-
-      .search-input,
-      .filter-actions {
-        width: 100%;
-      }
-
-      .filter-actions {
-        margin-left: 0;
-      }
-
-      .filter-select {
-        flex: 1;
-        min-width: 0;
-      }
-    }
-  }
-
   .content-section {
     overflow: hidden;
 
@@ -833,6 +555,7 @@ onMounted(async () => {
           border: 1px solid var(--gray-150);
           border-radius: 8px;
           padding: 12px;
+          padding-bottom: 6px;
 
           transition: all 0.2s ease;
           box-shadow: 0 1px 3px var(--shadow-1);
@@ -843,16 +566,10 @@ onMounted(async () => {
           }
 
           .card-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 8px;
             margin-bottom: 10px;
 
             .user-info-main {
               display: flex;
-              flex: 1;
-              min-width: 0;
               gap: 12px;
               align-items: center;
 
@@ -871,6 +588,12 @@ onMounted(async () => {
                   width: 100%;
                   height: 100%;
                   object-fit: cover;
+                }
+
+                .avatar-placeholder {
+                  color: var(--gray-600);
+                  font-weight: 500;
+                  font-size: 14px;
                 }
               }
 
@@ -937,22 +660,6 @@ onMounted(async () => {
                 }
               }
             }
-
-            .card-menu-trigger {
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              width: 28px;
-              height: 28px;
-              flex-shrink: 0;
-              color: var(--gray-600);
-
-              &:hover,
-              &:focus {
-                color: var(--gray-700);
-                background: var(--gray-50);
-              }
-            }
           }
 
           .card-content {
@@ -990,13 +697,39 @@ onMounted(async () => {
               }
             }
           }
-        }
-      }
 
-      .pagination-section {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 16px;
+          .card-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 6px;
+            padding-top: 6px;
+            border-top: 1px solid var(--gray-25);
+
+            .action-btn {
+              display: flex;
+              align-items: center;
+              gap: 4px;
+              padding: 4px 8px;
+              border-radius: 6px;
+              transition: all 0.2s ease;
+              font-size: 12px;
+
+              span {
+                font-size: 12px;
+              }
+
+              &:hover {
+                background: var(--gray-25);
+              }
+
+              &.ant-btn-dangerous:hover {
+                background: var(--gray-25);
+                border-color: var(--color-error-500);
+                color: var(--color-error-500);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -1011,25 +744,6 @@ onMounted(async () => {
     font-size: 13px;
     color: var(--gray-900);
     font-family: 'Monaco', 'Consolas', monospace;
-  }
-}
-
-.user-card-menu-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  &.danger {
-    color: var(--color-error-700);
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 

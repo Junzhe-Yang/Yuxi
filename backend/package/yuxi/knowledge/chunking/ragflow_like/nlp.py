@@ -55,28 +55,17 @@ def count_tokens(text: str) -> int:
     return max(1, len(parts)) if text.strip() else 0
 
 
-def hard_split_by_token_limit(text: str, chunk_token_num: int, hard_limit_token_num: int | None = None) -> list[str]:
-    """将文本按 token 上限硬切，用于 naive_merge 之后的兜底保护。
-
-    hard_limit_token_num 只在调用方显式传入时生效，用于允许略超目标长度的块
-    保持完整；默认保持严格不超过 chunk_token_num 的历史行为。
-    """
+def hard_split_by_token_limit(text: str, chunk_token_num: int) -> list[str]:
+    """将文本按 token 上限硬切，用于 naive_merge 之后的兜底保护。"""
     token_iter = list(re.finditer(r"[A-Za-z0-9_]+|[一-鿿]", text or ""))
     if not token_iter:
         cleaned = (text or "").strip()
         return [cleaned] if cleaned else []
 
-    max_tokens = max(int(chunk_token_num or 0), 1)
-    hard_limit = None
-    if hard_limit_token_num is not None:
-        hard_limit = max(int(hard_limit_token_num or 0), max_tokens)
-        if len(token_iter) <= hard_limit:
-            cleaned = (text or "").strip()
-            return [cleaned] if cleaned else []
-
-    spans: list[tuple[int, int]] = []
+    chunks: list[str] = []
     start = 0
     index = 0
+    max_tokens = max(int(chunk_token_num or 0), 1)
 
     while index < len(token_iter):
         next_index = min(index + max_tokens, len(token_iter))
@@ -84,24 +73,16 @@ def hard_split_by_token_limit(text: str, chunk_token_num: int, hard_limit_token_
             end = token_iter[next_index].start()
         else:
             end = len(text)
-        if text[start:end].strip():
-            spans.append((start, end))
+        piece = text[start:end].strip()
+        if piece:
+            chunks.append(piece)
         start = end
         index = next_index
 
     tail = text[start:].strip()
     if tail:
-        spans.append((start, len(text)))
-
-    if hard_limit is not None and len(spans) >= 2:
-        prev_start, _ = spans[-2]
-        _, tail_end = spans[-1]
-        candidate = text[prev_start:tail_end].strip()
-        if count_tokens(candidate) <= hard_limit:
-            spans[-2] = (prev_start, tail_end)
-            spans.pop()
-
-    return [text[start:end].strip() for start, end in spans if text[start:end].strip()]
+        chunks.append(tail)
+    return chunks
 
 
 def random_choices(arr: list[str], k: int) -> list[str]:

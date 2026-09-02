@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
-from collections.abc import Sequence
 from pathlib import Path
 
 import ormsgpack
@@ -38,10 +37,6 @@ MAX_SEARCH_DEPTH = 15
 CACHE_TTL = 60  # 缓存有效期 60 秒
 MAX_CACHED_ENTRIES = 100000
 REDIS_KEY_PREFIX = "yuxi:mention:cache:"
-WORKSPACE_CACHE_PREFIX = f"{REDIS_KEY_PREFIX}workspace:"
-THREAD_CACHE_PREFIX = f"{REDIS_KEY_PREFIX}thread:"
-WORKSPACE_THREAD_PLACEHOLDER = "_workspace"
-MENTION_SOURCES = {"workspace", "thread"}
 
 
 def _scan_pruned_files(root: Path, max_entries: int) -> list[tuple[str, str]]:
@@ -95,189 +90,155 @@ def _scan_pruned_files(root: Path, max_entries: int) -> list[tuple[str, str]]:
     return results
 
 
-async def _read_cached_index(redis, redis_key: str) -> list[tuple[str, str]] | None:
+async def get_or_build_file_index(
+    thread_id: str,
+    user_id: str,
+) -> list[tuple[str, str]]:
+    """
+    获取或构建当前 Workspace 和 Thread 的提及文件索引缓存 (使用 ormsgpack 二进制序列化)
+    """
+    redis = await get_redis_client()
+    redis_key = f"{REDIS_KEY_PREFIX}{thread_id}"
+
+    # NOTE: 项目全局 Redis 客户端配置了 decode_responses=True，
+    # 为了在上面安全地存储 ormsgpack 产生的二进制 bytes，
+    # 我们使用极速且无损的 latin1 (ISO-8859-1) 进行单字节字符互转。
+    # 这在 Python 底层由 C 引擎执行，体积完全不膨胀，速度极快，且不需要新建不带 decode 限制的 Redis 连接。
     cached_str = await redis.get(redis_key)
-    if not cached_str:
-        return None
-    try:
-        packed_bytes = base64.b64decode(cached_str)
-        return ormsgpack.unpackb(packed_bytes)
-    except Exception as e:
-        logger.warning(f"Failed to unpack mention cache {redis_key}: {e}")
-        return None
+    if cached_str:
+        try:
+            # NOTE: decode_responses=True 的 Redis 客户端只能存 str，
+            # 使用 base64 对 ormsgpack 的二进制输出进行无损编码后存储。
+            packed_bytes = base64.b64decode(cached_str)
+            return ormsgpack.unpackb(packed_bytes)
+        except Exception as e:
+            logger.warning(f"Failed to unpack mention cache for thread {thread_id}: {e}")
 
+    # 缓存未命中，在 asyncio.to_thread 线程池中执行阻塞的 os.walk 磁盘扫描
+    roots_with_prefixes = [
+        ("workspace", sandbox_workspace_dir(thread_id, user_id)),
+        ("uploads", sandbox_uploads_dir(thread_id)),
+        ("outputs", sandbox_outputs_dir(thread_id)),
+    ]
 
-async def _write_cached_index(redis, redis_key: str, entries: list[tuple[str, str]]) -> None:
+    entries: list[tuple[str, str]] = []
+    for prefix, root in roots_with_prefixes:
+        needed = MAX_CACHED_ENTRIES - len(entries)
+        if needed <= 0:
+            break
+
+        # 使用 to_thread 避免 os.walk 阻塞 FastAPI 事件循环
+        scan_results = await asyncio.to_thread(_scan_pruned_files, root, needed)
+
+        # 加上虚拟文件系统前缀，例如 "workspace/src/main.py"
+        for name, rel_path in scan_results:
+            virtual_rel_path = f"{prefix}/{rel_path}" if rel_path and rel_path != "." else prefix
+            entries.append((name, virtual_rel_path))
+
+    # 写入 Redis 缓存
     try:
         packed_bytes = ormsgpack.packb(entries)
         packed_str = base64.b64encode(packed_bytes).decode("ascii")
         await redis.set(redis_key, packed_str, ex=CACHE_TTL)
     except Exception as e:
-        logger.warning(f"Failed to write mention cache {redis_key}: {e}")
-
-
-def _normalize_sources(sources: Sequence[str] | None, *, has_thread: bool) -> tuple[str, ...]:
-    if not sources:
-        return ("thread", "workspace") if has_thread else ("workspace",)
-
-    normalized = []
-    for source in sources:
-        value = str(source or "").strip().lower()
-        if value in MENTION_SOURCES and value not in normalized:
-            normalized.append(value)
-
-    if not has_thread:
-        normalized = [source for source in normalized if source == "workspace"]
-    return tuple(normalized or (["workspace"] if not has_thread else ["thread", "workspace"]))
-
-
-def _workspace_root(uid: str) -> Path:
-    return sandbox_workspace_dir(WORKSPACE_THREAD_PLACEHOLDER, uid)
-
-
-async def _scan_virtual_root(root: Path, virtual_prefix: str, max_entries: int) -> list[tuple[str, str]]:
-    scan_results = await asyncio.to_thread(_scan_pruned_files, root, max_entries)
-    return [
-        (name, f"{virtual_prefix}/{rel_path}" if rel_path and rel_path != "." else virtual_prefix)
-        for name, rel_path in scan_results
-    ]
-
-
-async def get_or_build_workspace_index(uid: str) -> list[tuple[str, str]]:
-    redis = await get_redis_client()
-    redis_key = f"{WORKSPACE_CACHE_PREFIX}{uid}"
-    cached = await _read_cached_index(redis, redis_key)
-    if cached is not None:
-        return cached
-
-    entries = await _scan_virtual_root(_workspace_root(uid), "workspace", MAX_CACHED_ENTRIES)
-    await _write_cached_index(redis, redis_key, entries)
-    return entries
-
-
-async def get_or_build_thread_index(thread_id: str) -> list[tuple[str, str]]:
-    redis = await get_redis_client()
-    redis_key = f"{THREAD_CACHE_PREFIX}{thread_id}"
-    cached = await _read_cached_index(redis, redis_key)
-    if cached is not None:
-        return cached
-
-    entries: list[tuple[str, str]] = []
-    for virtual_prefix, root in (
-        ("uploads", sandbox_uploads_dir(thread_id)),
-        ("outputs", sandbox_outputs_dir(thread_id)),
-    ):
-        needed = MAX_CACHED_ENTRIES - len(entries)
-        if needed <= 0:
-            break
-        entries.extend(await _scan_virtual_root(root, virtual_prefix, needed))
-
-    await _write_cached_index(redis, redis_key, entries)
-    return entries
-
-
-async def get_or_build_file_index(
-    thread_id: str | None,
-    uid: str,
-    sources: Sequence[str] | None = None,
-) -> list[tuple[str, str, str]]:
-    """获取或构建当前可提及文件索引，workspace 与 thread 缓存分离。"""
-    selected_sources = _normalize_sources(sources, has_thread=bool(thread_id))
-    entries: list[tuple[str, str, str]] = []
-
-    for source in selected_sources:
-        if source == "thread" and thread_id:
-            entries.extend(
-                (name, virtual_path, "thread") for name, virtual_path in await get_or_build_thread_index(thread_id)
-            )
-        elif source == "workspace":
-            entries.extend(
-                (name, virtual_path, "workspace") for name, virtual_path in await get_or_build_workspace_index(uid)
-            )
+        logger.warning(f"Failed to write mention cache for thread {thread_id}: {e}")
 
     return entries
 
 
-def _rank_mention_entries(index: list[tuple[str, str, str]], query: str) -> list[dict]:
+async def search_mention_files_in_index(
+    thread_id: str,
+    user_id: str,
+    query: str,
+) -> list[dict]:
+    """
+    高效的基于文件名/目录名权重与排序的模糊搜索算法 (彻底消除纯路径抢占，置顶核心匹配项)
+    """
+    index = await get_or_build_file_index(thread_id, user_id)
+    if not index:
+        return []
+
+    # NOTE: query 为空时不执行搜索，避免空字符串匹配所有条目（空串是任何字符串的子串）
+    if not query:
+        return []
+
     query_lower = query.lower()
-    prefix = (config.sandbox_virtual_path_prefix or "/home/gem/user-data").rstrip("/")
-    name_matched = []
-    path_matched = []
 
-    for name, virtual_path, source in index:
+    prefix = (config.sandbox_virtual_path_prefix or "/home/gem/user-data").rstrip("/")
+
+    # 存储加权匹配结果
+    name_matched = []  # 文件名/目录名直接匹配的项 (高分)
+    path_matched = []  # 仅路径匹配的项 (低分，作为兜底)
+
+    for name, virtual_path in index:
         name_lower = name.lower()
         path_lower = virtual_path.lower()
         is_dir = virtual_path.endswith("/")
 
+        # 1. 优先判定名称是否包含关键字 (置顶)
         if query_lower in name_lower:
             if name_lower == query_lower:
-                score = 1000.0
+                score = 1000.0  # 完全匹配
             else:
-                score = 500.0
+                score = 500.0  # 基础名称匹配分
+
+                # 附加前缀优势
                 if name_lower.startswith(query_lower):
                     score += 50.0
+
+                # 附加后缀优势
                 if name_lower.endswith(query_lower):
                     score += 20.0
+
+                # 位置惩罚：匹配位置越靠后，给与轻微扣分 (最高扣 30 分)
                 start_idx = name_lower.find(query_lower)
                 if start_idx != -1:
                     score -= min(start_idx, 30.0)
+
+                # 长度惩罚：文件名越长，扣分越多 (最高扣 50 分，以优先展示简短、高信息密度的核心文件)
                 score -= min(len(name) * 0.5, 50.0)
 
-            name_matched.append(
-                {"name": name, "path": f"{prefix}/{virtual_path}", "is_dir": is_dir, "source": source, "score": score}
-            )
+            name_matched.append({"name": name, "path": f"{prefix}/{virtual_path}", "is_dir": is_dir, "score": score})
+
+        # 2. 其次判定是否为纯路径匹配 (名称不匹配，但路径中包含)
         elif query_lower in path_lower:
-            score = 10.0 - min(len(virtual_path) * 0.1, 5.0)
+            score = 10.0
+            # 路径长度惩罚
+            score -= min(len(virtual_path) * 0.1, 5.0)
             path_matched.append(
-                {"name": name, "path": f"{prefix}/{virtual_path}", "is_dir": is_dir, "source": source, "score": score}
+                {
+                    "name": name,
+                    "path": f"{prefix}/{virtual_path}",
+                    "is_dir": is_dir,
+                    "score": score,
+                }
             )
 
+    # 对名称直接匹配项按照打分降序进行精准排序 (打分已融合位置与长度惩罚)
     name_matched.sort(key=lambda x: -x["score"])
-    path_matched.sort(key=lambda x: len(x["path"]))
-    return [*name_matched, *path_matched]
 
+    # 智能融合：如果名称匹配项不足 MAX_MENTION_RESULTS，用路径匹配项兜底填补
+    merged_results = name_matched
+    if len(merged_results) < MAX_MENTION_RESULTS:
+        # 对路径匹配项按路径长度进行升序排序 (通常短路径更直观)
+        path_matched.sort(key=lambda x: len(x["path"]))
+        needed = MAX_MENTION_RESULTS - len(merged_results)
+        merged_results.extend(path_matched[:needed])
 
-async def search_mention_files_in_index(
-    thread_id: str | None,
-    uid: str,
-    query: str,
-    sources: Sequence[str] | None = None,
-) -> list[dict]:
-    """搜索可提及文件；未绑定 thread 时只搜索用户 workspace。"""
-    if not query:
-        return []
-
-    selected_sources = _normalize_sources(sources, has_thread=bool(thread_id))
-    results: list[dict] = []
-
-    for source in selected_sources:
-        source_index = await get_or_build_file_index(thread_id, uid, [source])
-        source_results = _rank_mention_entries(source_index, query)
-        remaining = MAX_MENTION_RESULTS - len(results)
-        if remaining <= 0:
-            break
-        results.extend(source_results[:remaining])
-
+    # 截取前 MAX_MENTION_RESULTS 项并还原为前端格式，附加 is_dir 属性以识别目录
     return [
-        {"name": item["name"], "path": item["path"], "is_dir": item["is_dir"], "source": item["source"]}
-        for item in results[:MAX_MENTION_RESULTS]
+        {"name": item["name"], "path": item["path"], "is_dir": item["is_dir"]}
+        for item in merged_results[:MAX_MENTION_RESULTS]
     ]
 
 
 async def invalidate_mention_cache(thread_id: str) -> None:
-    """清理指定 thread 的提及文件缓存。"""
+    """
+    轻量级缓存清理工具函数，主动清除指定 thread 的提及缓存
+    """
     try:
         redis = await get_redis_client()
-        await redis.delete(f"{THREAD_CACHE_PREFIX}{thread_id}")
-        await redis.delete(f"{REDIS_KEY_PREFIX}{thread_id}")
+        redis_key = f"{REDIS_KEY_PREFIX}{thread_id}"
+        await redis.delete(redis_key)
     except Exception as e:
         logger.warning(f"Failed to invalidate mention cache for thread {thread_id}: {e}")
-
-
-async def invalidate_workspace_mention_cache(uid: str) -> None:
-    """清理指定用户 workspace 的提及文件缓存。"""
-    try:
-        redis = await get_redis_client()
-        await redis.delete(f"{WORKSPACE_CACHE_PREFIX}{uid}")
-    except Exception as e:
-        logger.warning(f"Failed to invalidate workspace mention cache for uid {uid}: {e}")

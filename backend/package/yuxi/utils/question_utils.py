@@ -55,3 +55,25 @@ def normalize_questions(raw_questions: Any, default_question_id_prefix: str = "q
         questions.append(normalized_question)
 
     return questions
+
+
+def normalize_legacy_question(raw_question: Any) -> dict[str, Any] | None:
+    """规范化单个问题（兼容旧格式）"""
+    if not raw_question:
+        return None
+
+    question = str(raw_question.get("question") or "").strip()
+    if not question:
+        return None
+
+    question_id = str(raw_question.get("question_id") or "").strip()
+    if not question_id:
+        question_id = str(uuid.uuid4())
+
+    return {
+        "question_id": question_id,
+        "question": question,
+        "options": normalize_options(raw_question.get("options")),
+        "multi_select": bool(raw_question.get("multi_select", False)),
+        "allow_other": bool(raw_question.get("allow_other", True)),
+    }

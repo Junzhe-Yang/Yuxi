@@ -12,9 +12,10 @@
 
     <template #overlay>
       <a-menu class="scrollable-menu">
-        <a-menu-item-group v-for="(providerData, providerId) in v2Models" :key="providerId">
+        <a-menu-item-group v-for="(providerData, providerId) in v2Models" :key="`v2-${providerId}`">
           <template #title>
             <span>{{ providerId }}</span>
+            <a-tag color="success" size="small" class="provider-tag">新</a-tag>
           </template>
           <a-menu-item
             v-for="model in providerData.models"
@@ -24,6 +25,13 @@
             {{ model.display_name }}
           </a-menu-item>
         </a-menu-item-group>
+
+        <a-menu-item-group v-if="v1Models.length" key="v1" title="V1 版本（过时）">
+          <a-menu-item v-for="name in v1Models" :key="name" @click="handleSelect(name)">
+            <span>{{ name }}</span>
+            <a-tag color="default" size="small" class="provider-tag">过时</a-tag>
+          </a-menu-item>
+        </a-menu-item-group>
       </a-menu>
     </template>
   </a-dropdown>
@@ -31,7 +39,10 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { useConfigStore } from '@/stores/config'
 import { modelProviderApi } from '@/apis/system_api'
+
+const configStore = useConfigStore()
 
 const props = defineProps({
   value: {
@@ -60,7 +71,12 @@ const props = defineProps({
 const emit = defineEmits(['update:value', 'change'])
 
 const v2Models = ref({})
+
 const displayText = computed(() => props.value || props.placeholder)
+
+const v1Models = computed(() => {
+  return Object.keys(configStore?.config?.reranker_names || {})
+})
 
 const handleOpenChange = async (open) => {
   if (!open) return
@@ -70,7 +86,7 @@ const handleOpenChange = async (open) => {
       v2Models.value = response.data || {}
     }
   } catch (error) {
-    console.error('获取 rerank 模型失败:', error)
+    console.error('获取 V2 rerank 模型失败:', error)
   }
 }
 

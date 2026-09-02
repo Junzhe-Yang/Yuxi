@@ -3,8 +3,8 @@
     <template #header>
       <div class="sep-header">
         <span class="note">{{ operationLabel }}</span>
-        <span class="separator" v-if="resourceLabel">|</span>
-        <span class="description" v-if="resourceLabel">知识库: {{ resourceLabel }}</span>
+        <span class="separator" v-if="kbName">|</span>
+        <span class="description" v-if="kbName">知识库: {{ kbName }}</span>
         <span class="separator" v-if="queryText">|</span>
         <span class="description">{{ queryText }}</span>
       </div>
@@ -93,7 +93,6 @@
 import { computed } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
 import KbResultGroupedList from '@/components/sources/KbResultGroupedList.vue'
-import { useDatabaseStore } from '@/stores/database'
 
 const props = defineProps({
   toolCall: {
@@ -101,8 +100,6 @@ const props = defineProps({
     required: true
   }
 })
-
-const databaseStore = useDatabaseStore()
 
 const args = computed(() => {
   const value = props.toolCall.args || props.toolCall.function?.arguments
@@ -119,9 +116,7 @@ const toolName = computed(() => props.toolCall.name || props.toolCall.function?.
 
 const operationLabel = computed(() => `${toolName.value} 搜索`)
 
-const resourceLabel = computed(
-  () => args.value.kb_name || databaseStore.getDatabaseNameById(args.value.kb_id)
-)
+const kbName = computed(() => args.value.kb_name || '')
 const queryText = computed(() => args.value.query_text || '')
 
 const EMPTY_RESULT = Object.freeze({
@@ -135,10 +130,11 @@ let lastResultContent = null
 let lastParsedResult = EMPTY_RESULT
 
 const normalizeChunks = (payload) => {
+  if (Array.isArray(payload)) return payload
   if (!payload || typeof payload !== 'object') return []
 
-  if (Array.isArray(payload.results)) return payload.results
   if (Array.isArray(payload.chunks)) return payload.chunks
+  if (Array.isArray(payload.data?.chunks)) return payload.data.chunks
 
   return []
 }
@@ -163,11 +159,24 @@ const parseResult = (content) => {
     return lastParsedResult
   }
 
+  // 兼容 Milvus chunks 与 LightRAG graph/all 结构。
   const nextResult = {
     chunks: normalizeChunks(payload),
-    entities: Array.isArray(payload.entities) ? payload.entities : [],
-    relationships: Array.isArray(payload.relationships) ? payload.relationships : [],
-    references: Array.isArray(payload.references) ? payload.references : []
+    entities: Array.isArray(payload.entities)
+      ? payload.entities
+      : Array.isArray(payload.data?.entities)
+        ? payload.data.entities
+        : [],
+    relationships: Array.isArray(payload.relationships)
+      ? payload.relationships
+      : Array.isArray(payload.data?.relationships)
+        ? payload.data.relationships
+        : [],
+    references: Array.isArray(payload.references)
+      ? payload.references
+      : Array.isArray(payload.data?.references)
+        ? payload.data.references
+        : []
   }
 
   lastResultContent = content

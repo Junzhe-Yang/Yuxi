@@ -30,8 +30,8 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 - `services` 是用例层，负责串联 repositories、agents、knowledge、storage 和外部系统。聊天、运行队列、文件视图、Skills、MCP、SubAgents、评估等跨模块流程都从这里找入口。
 - `repositories` 是数据库访问边界，封装业务对象和知识库元数据的 SQLAlchemy 查询。不要让路由绕过 repository 直接操作模型，除非已有局部模式要求这样做。
 - `storage` 放持久化基础设施。`storage/postgres` 管理业务表、知识库表和 LangGraph checkpoint 所需连接池；`storage/minio` 管理对象存储。
-- `knowledge` 是知识库和图谱领域。`KnowledgeBaseManager` 根据知识库类型分发到具体实现；`implementations` 放 Milvus、Dify 等知识库实现；`graphs` 放 Milvus 知识库图谱适配与构建服务；`chunking` 放文档分块策略。
-- `knowledge/parser` 是文档解析边界，统一封装 MinerU、PaddleX、RapidOCR、DeepSeek OCR 等解析实现。
+- `knowledge` 是知识库和图谱领域。`KnowledgeBaseManager` 根据知识库类型分发到具体实现；`implementations` 放 LightRAG、Milvus、Dify 等知识库实现；`graphs` 放图谱适配与上传图谱服务；`chunking` 放文档分块策略。
+- `plugins/parser` 是文档解析插件边界，统一封装 MinerU、PaddleX、RapidOCR、DeepSeek OCR 等解析实现。
 - `models` 封装 chat、embedding、rerank 模型适配；`config` 维护应用配置和内置模型信息；`utils` 放跨领域但足够通用的工具。
 
 测试代码放在 `backend/test`，按 `unit`、`integration`、`e2e` 分层组织。新增或修改后端行为时，测试应落在最能覆盖风险的那一层。

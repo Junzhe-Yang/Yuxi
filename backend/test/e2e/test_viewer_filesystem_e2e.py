@@ -128,7 +128,7 @@ async def _upload(
     response = await client.post(
         "/api/viewer/filesystem/upload",
         data={"thread_id": thread_id, "parent_path": parent_path, "agent_id": agent_id},
-        files={"files": (file_name, content, "text/plain")},
+        files={"file": (file_name, content, "text/plain")},
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -141,15 +141,15 @@ async def test_viewer_filesystem_e2e_respects_workspace_sharing_and_thread_local
     e2e_agent_context: dict[str, str | int],
 ):
     agent_id = str(e2e_agent_context["agent_id"])
-    uid = str(e2e_agent_context["uid"])
+    user_id = str(e2e_agent_context["user_id"])
     thread_id = await _create_thread(e2e_client, e2e_headers, agent_id)
     other_thread_id = await _create_thread(e2e_client, e2e_headers, agent_id)
 
-    ensure_thread_dirs(thread_id, uid)
-    ensure_thread_dirs(other_thread_id, uid)
+    ensure_thread_dirs(thread_id, user_id)
+    ensure_thread_dirs(other_thread_id, user_id)
 
     (sandbox_user_data_dir(thread_id) / "root-note.txt").write_text("root-visible\n", encoding="utf-8")
-    (sandbox_workspace_dir(thread_id, uid) / "demo.py").write_text("print(42)\n", encoding="utf-8")
+    (sandbox_workspace_dir(thread_id, user_id) / "demo.py").write_text("print(42)\n", encoding="utf-8")
 
     uploads_dir = sandbox_uploads_dir(thread_id) / "attachments"
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -257,11 +257,11 @@ async def test_viewer_filesystem_e2e_deletes_workspace_directory_recursively(
     e2e_agent_context: dict[str, str | int],
 ):
     agent_id = str(e2e_agent_context["agent_id"])
-    uid = str(e2e_agent_context["uid"])
+    user_id = str(e2e_agent_context["user_id"])
     thread_id = await _create_thread(e2e_client, e2e_headers, agent_id)
 
-    ensure_thread_dirs(thread_id, uid)
-    target_dir = sandbox_workspace_dir(thread_id, uid) / "delete-dir"
+    ensure_thread_dirs(thread_id, user_id)
+    target_dir = sandbox_workspace_dir(thread_id, user_id) / "delete-dir"
     nested_dir = target_dir / "deep"
     nested_dir.mkdir(parents=True)
     (nested_dir / "artifact.txt").write_text("delete me\n", encoding="utf-8")
@@ -295,11 +295,11 @@ async def test_viewer_filesystem_e2e_creates_directory_and_uploads_file(
     e2e_agent_context: dict[str, str | int],
 ):
     agent_id = str(e2e_agent_context["agent_id"])
-    uid = str(e2e_agent_context["uid"])
+    user_id = str(e2e_agent_context["user_id"])
     thread_id = await _create_thread(e2e_client, e2e_headers, agent_id)
     directory_name = f"viewer-created-{uuid.uuid4().hex[:8]}"
 
-    ensure_thread_dirs(thread_id, uid)
+    ensure_thread_dirs(thread_id, user_id)
 
     directory_payload = await _create_directory(
         e2e_client,
@@ -310,7 +310,7 @@ async def test_viewer_filesystem_e2e_creates_directory_and_uploads_file(
         name=directory_name,
     )
     assert directory_payload.get("success") is True, directory_payload
-    assert (sandbox_workspace_dir(thread_id, uid) / directory_name).is_dir()
+    assert (sandbox_workspace_dir(thread_id, user_id) / directory_name).is_dir()
 
     upload_payload = await _upload(
         e2e_client,

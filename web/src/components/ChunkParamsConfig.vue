@@ -24,69 +24,50 @@
         </p>
       </a-form-item>
 
-      <div class="chunk-row">
-        <a-form-item v-if="showChunkSizeOverlap" name="chunk_token_num">
-          <template #label>
-            <span class="chunk-preset-label">
-              最大 Token 数
-              <a-tooltip title="每个文本片段的最大 token 数，留空时使用默认值 512">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
+      <div class="chunk-row" v-if="showChunkSizeOverlap">
+        <a-form-item label="Chunk Size" name="chunk_size">
           <a-input-number
-            v-model:value="parserConfig.chunk_token_num"
+            v-model:value="localParams.chunk_size"
             :min="100"
             :max="10000"
-            placeholder="默认 512"
             style="width: 100%"
           />
+          <p class="param-description">每个文本片段的最大字符数</p>
         </a-form-item>
-        <a-form-item v-if="showChunkSizeOverlap" name="overlapped_percent">
-          <template #label>
-            <span class="chunk-preset-label">
-              重叠比例 (%)
-              <a-tooltip title="相邻文本片段按 token 数计算的重叠比例，留空时使用默认值 0">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
+        <a-form-item label="Chunk Overlap" name="chunk_overlap">
           <a-input-number
-            v-model:value="parserConfig.overlapped_percent"
+            v-model:value="localParams.chunk_overlap"
             :min="0"
-            :max="99"
-            placeholder="默认 0"
+            :max="1000"
             style="width: 100%"
           />
-        </a-form-item>
-        <a-form-item v-if="showQaSplit" name="delimiter">
-          <template #label>
-            <span class="chunk-preset-label">
-              分隔符
-              <a-tooltip title="支持 \\n、\\t 等转义字符。留空时使用默认分隔符 \\n">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
-          <a-input
-            v-model:value="parserConfig.delimiter"
-            placeholder="默认 \\n，可输入 \\n\\n\\n 或 ---"
-            style="width: 100%"
-          />
+          <p class="param-description">相邻文本片段间的重叠字符数</p>
         </a-form-item>
       </div>
+      <a-form-item
+        v-if="showQaSplit"
+        class="qa-separator-item"
+        label="分隔符 (Separator)"
+        name="qa_separator"
+      >
+        <a-input
+          v-model:value="localParams.qa_separator"
+          placeholder="输入分隔符，例如 \n\n\n 或 ---"
+          style="width: 100%"
+        />
+        <p class="param-description">支持 \n、\t 等转义字符。留空则不启用预分割</p>
+      </a-form-item>
     </a-form>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import {
   CHUNK_PRESET_OPTIONS,
   CHUNK_PRESET_LABEL_MAP,
-  getChunkPresetDescription,
-  isPlainObject
+  getChunkPresetDescription
 } from '@/utils/chunk_presets'
 
 const props = defineProps({
@@ -116,15 +97,9 @@ const props = defineProps({
   }
 })
 
+// 使用 computed 包装，直接返回原始对象供表单修改
+// 表单修改会直接作用于 tempChunkParams（父组件的ref），实现双向绑定
 const localParams = computed(() => props.tempChunkParams)
-const fallbackParserConfig = ref({})
-
-const parserConfig = computed(() => {
-  if (!isPlainObject(props.tempChunkParams.chunk_parser_config)) {
-    return fallbackParserConfig.value
-  }
-  return props.tempChunkParams.chunk_parser_config
-})
 
 const presetOptions = computed(() => {
   const options = []
@@ -172,6 +147,11 @@ const presetDescription = computed(() => getChunkPresetDescription(effectivePres
 
 .chunk-row > .ant-form-item {
   flex: 1;
+  margin-bottom: 0;
+}
+
+.qa-separator-item {
+  margin-top: 8px;
   margin-bottom: 0;
 }
 

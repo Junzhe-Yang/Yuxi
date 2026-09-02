@@ -1,14 +1,7 @@
 <template>
   <div class="chat-container">
-    <div
-      class="chat"
-      :class="{
-        'has-file-panel': isFilePanelOpen,
-        'is-resizing-file-panel': isResizing
-      }"
-      :style="{ '--file-panel-width': filePanelWidthStyle }"
-    >
-      <div class="chat-header" :class="{ 'has-active-thread': !!currentChatId }">
+    <div class="chat">
+      <div class="chat-header">
         <div class="header__left">
           <slot name="header-left"></slot>
           <div
@@ -19,90 +12,51 @@
           </div>
         </div>
         <div class="header__right">
-          <button
-            v-if="showStateEntry"
-            type="button"
-            class="agent-nav-btn agent-state-btn state-entry-btn"
-            :class="{ active: statePanelOpen }"
-            title="查看状态"
-            :aria-expanded="statePanelOpen"
-            aria-controls="agent-state-panel"
-            @click.stop="toggleStatePanel"
-          >
-            <LayoutList size="16" class="nav-btn-icon" />
-            <span class="hide-text">状态</span>
-          </button>
-          <button
-            v-if="showFileEntry && !isFilePanelOpen"
-            type="button"
-            class="agent-nav-btn agent-state-btn file-entry-btn"
-            title="查看文件"
-            :aria-expanded="isFilePanelOpen"
-            aria-controls="agent-file-panel"
-            @click.stop="toggleAgentPanel"
-          >
-            <FolderKanban size="16" class="nav-btn-icon" />
-            <span class="hide-text">文件</span>
-          </button>
           <slot
             name="header-right"
-            :side-active="sideActive"
-            :is-file-panel-open="isFilePanelOpen"
-            :is-state-panel-open="statePanelOpen"
+            :is-agent-panel-open="isAgentPanelOpen"
             :has-active-thread="!!currentChatId"
             :toggle-agent-panel="toggleAgentPanel"
           ></slot>
         </div>
       </div>
 
-      <div
-        ref="chatContentContainerRef"
-        class="chat-content-container"
-        :class="{
-          'has-file-panel': isFilePanelOpen,
-          'has-state-panel': statePanelDocked,
-          'has-floating-state-panel': statePanelFloating
-        }"
-      >
+      <div class="chat-content-container">
         <!-- Main Chat Area -->
         <div class="chat-main" ref="chatMainRef">
           <div class="chat-box">
             <template v-for="row in conversationRows" :key="row.key">
               <div v-if="row.type === 'conversation'" class="conv-box">
                 <template
-                  v-for="(displayItem, itemIndex) in row.displayItems"
+                  v-for="(displayItem, itemIndex) in getConversationDisplayItems(row.conv)"
                   :key="displayItem.key"
                 >
                   <AgentMessageComponent
                     v-if="displayItem.type === 'message'"
                     :message="displayItem.message"
                     :is-processing="isDisplayMessageProcessing(row.conv, displayItem)"
-                    :show-refs="showMsgRefs(displayItem.message, row.conv)"
+                    :show-refs="showMsgRefs(displayItem.message)"
                     :hide-tool-calls="true"
-                    :mention="mentionConfig"
                     @retry="retryMessage(displayItem.message)"
+                    @undo="handleUndo"
                   >
                   </AgentMessageComponent>
                   <ToolCallsGroupComponent
                     v-else
                     :tool-calls="displayItem.toolCalls"
-                    :is-active="isToolGroupActive(row.conv, itemIndex, row.displayItems)"
+                    :is-active="
+                      isToolGroupActive(row.conv, itemIndex, getConversationDisplayItems(row.conv))
+                    "
                   />
                 </template>
-                <AgentArtifactsCard
-                  v-if="shouldShowArtifacts(row.conv)"
-                  :artifacts="currentArtifacts"
-                  :thread-id="currentChatId"
-                  @saved="handleArtifactSaved"
-                  @open-preview="openPanelPreview"
-                />
                 <!-- 显示对话最后一个消息使用的模型 -->
                 <RefsComponent
                   v-if="shouldShowRefs(row.conv)"
                   :message="getLastMessage(row.conv)"
-                  :show-refs="['model', 'copy', 'sources']"
+                  :show-refs="['model', 'copy', 'sources', 'fork']"
                   :is-latest-message="false"
                   :sources="getConversationSources(row.conv)"
+                  @fork="handleFork(getLastMessage(row.conv))"
                 />
               </div>
               <div v-else class="chat-inline-notice">
@@ -125,8 +79,8 @@
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
             <!-- 人工审批弹窗 - 放在输入框上方 -->
             <HumanApprovalModal
-              :visible="currentApprovalModalVisible"
-              :questions="currentApprovalQuestions"
+              :visible="approvalState.showModal"
+              :questions="approvalState.questions"
               @submit="handleQuestionSubmit"
               @cancel="handleQuestionCancel"
             />
@@ -139,9 +93,61 @@
               </div>
 
               <!-- 打招呼区域 - 在输入框上方 -->
-              <div v-if="!conversations.length" class="chat-greeting-input">
+              <div v-if="!conversations.length" class="chat-examples-input">
                 <h1>{{ randomGreeting }}</h1>
               </div>
+
+              <div v-if="showStartAgentSegment" class="agent-segment-wrapper">
+                <a-segmented
+                  :value="currentAgentId"
+                  :options="agentSegmentOptions"
+                  @change="handleStartAgentChange"
+                />
+              </div>
+
+              <div v-else-if="showStartAgentDropdown" class="agent-switcher-wrapper">
+                <a-dropdown :trigger="['click']" placement="bottomCenter">
+                  <button type="button" class="agent-switcher-btn">
+                    <component :is="currentAgentIcon" size="16" class="agent-switcher-icon" />
+                    <span class="agent-switcher-text">{{ currentAgentName }}</span>
+                    <ChevronDown size="16" class="agent-switcher-chevron" />
+                  </button>
+                  <template #overlay>
+                    <a-menu class="agent-switcher-menu">
+                      <a-menu-item
+                        v-for="agent in startAgents"
+                        :key="agent.id"
+                        @click="handleStartAgentChange(agent.id)"
+                      >
+                        <div class="agent-switcher-menu-item">
+                          <component
+                            :is="getAgentIconComponent(agent.id)"
+                            size="16"
+                            class="agent-switcher-menu-icon"
+                          />
+                          <span class="agent-switcher-menu-text">{{
+                            agent.name || 'Unknown'
+                          }}</span>
+                          <span
+                            v-if="agent.id === currentAgentId"
+                            class="agent-switcher-menu-badge"
+                          >
+                            当前
+                          </span>
+                        </div>
+                      </a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
+              </div>
+
+              <AgentArtifactsCard
+                :artifacts="currentArtifacts"
+                :thread-id="currentChatId"
+                :agent-id="currentThread?.agent_id || currentAgentId"
+                :agent-config-id="selectedAgentConfigId"
+                @saved="handleArtifactSaved"
+              />
 
               <AgentInputArea
                 v-model="userInput"
@@ -151,34 +157,32 @@
                 :mention="mentionConfig"
                 :thread-id="currentChatId"
                 :supports-file-upload="supportsFileUpload"
-                :attachments="currentPendingThreadAttachments"
+                :has-active-thread="!!currentChatId"
+                :todos="currentTodos"
                 @send="handleSendOrStop"
                 @upload-attachment="handleAttachmentUpload"
-                @remove-attachment="handleAttachmentRemove"
               >
                 <template #actions-left-extra>
-                  <slot name="input-actions-left" :has-active-thread="!!currentChatId"></slot>
-                </template>
-                <template #actions-right-extra>
-                  <div class="input-model-selector">
-                    <ModelSelectorComponent
-                      :model_spec="currentModelSpec"
-                      size="nano"
-                      display-name="mini"
-                      placeholder="选择模型"
-                      @select-model="handleModelSelect"
-                    />
-                  </div>
-                  <slot name="input-actions-right" :has-active-thread="!!currentChatId"></slot>
+                  <slot name="input-actions-left"></slot>
                 </template>
               </AgentInputArea>
 
-              <AttachmentTmpUploadModal
-                v-model:open="attachmentUploadModalOpen"
-                :thread-id="currentChatId"
-                :ensure-thread="ensureAttachmentThread"
-                @added="handleTmpAttachmentsAdded"
-              />
+              <!-- 示例问题 -->
+              <div
+                class="example-questions"
+                v-if="!conversations.length && exampleQuestions.length > 0"
+              >
+                <div class="example-chips">
+                  <div
+                    v-for="question in exampleQuestions"
+                    :key="question.id"
+                    class="example-chip"
+                    @click="handleExampleClick(question.text)"
+                  >
+                    {{ question.text }}
+                  </div>
+                </div>
+              </div>
 
               <div class="bottom-actions" v-if="conversations.length > 0">
                 <p class="note">当前智能体：{{ currentThreadAgentName }}；请注意辨别内容的可靠性</p>
@@ -187,371 +191,33 @@
           </div>
         </div>
 
+        <!-- Agent Panel Area -->
+
         <div
-          id="agent-state-panel"
-          class="side-panel side-panel--state"
+          class="agent-panel-wrapper"
+          ref="panelWrapperRef"
           :class="{
-            'is-visible': statePanelOpen,
-            'is-docked': statePanelDocked,
-            'is-floating': statePanelFloating
+            'is-visible': isAgentPanelOpen,
+            'no-transition': isResizing
           }"
           :style="{
-            flexBasis: statePanelDocked ? `${statePanelDockWidth}px` : '0px'
+            flexBasis: isAgentPanelOpen ? `${panelRatio * 100}%` : '0px'
           }"
         >
-          <div v-if="statePanelOpen" class="state-panel">
-            <div class="side-panel__header state-panel-header">
-              <span class="state-panel-title">状态</span>
-              <div class="state-panel-header-actions">
-                <span class="state-panel-summary">{{ stateSummaryLabel }}</span>
-                <button
-                  type="button"
-                  class="state-refresh-btn"
-                  title="刷新状态"
-                  :disabled="isRefreshingState"
-                  @click.stop="handleAgentStateRefresh()"
-                >
-                  <RefreshCw :size="14" :class="{ 'is-spinning': isRefreshingState }" />
-                </button>
-              </div>
-            </div>
-
-            <div class="state-panel-body">
-              <section
-                v-if="currentTokenUsage"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                aria-label="上下文使用情况"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('tokenUsage')"
-                  aria-controls="state-section-token-usage"
-                  @click="toggleStateSection('tokenUsage')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">上下文使用</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">
-                    {{ tokenUsageHeaderPercentLabel }}
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('tokenUsage')"
-                  id="state-section-token-usage"
-                  class="state-section-content"
-                >
-                  <div class="token-usage-content">
-                    <div class="token-usage-stack">
-                      <div class="token-usage-stack-head">
-                        <span>当前上下文</span>
-                        <strong>{{ tokenUsageStackHeadLabel }}</strong>
-                      </div>
-                      <div class="token-usage-stack-track" aria-label="Token 构成">
-                        <div
-                          v-for="segment in tokenUsageBarSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-segment"
-                          :class="segment.tone"
-                          :style="{ width: segment.percent }"
-                          :title="`${segment.label}: ${segment.valueLabel}`"
-                        ></div>
-                      </div>
-                      <div class="token-usage-stack-legend">
-                        <span
-                          v-for="segment in tokenUsageSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-legend-item"
-                        >
-                          <i :class="segment.tone"></i>
-                          {{ segment.label }} {{ segment.valueLabel }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div v-if="tokenUsageMetaRows.length" class="token-usage-breakdown">
-                      <div
-                        v-for="item in tokenUsageMetaRows"
-                        :key="item.key"
-                        class="token-usage-breakdown-row"
-                      >
-                        <span>{{ item.label }}</span>
-                        <strong>{{ item.value }}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentTodos.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('todos')"
-                  aria-controls="state-section-todos"
-                  @click="toggleStateSection('todos')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">待办</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-                    />
-                  </span>
-                  <span v-if="totalTodoCount" class="state-section-meta">
-                    {{ completedTodoCount }}/{{ totalTodoCount }} · {{ todoProgress }}%
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('todos')"
-                  id="state-section-todos"
-                  class="state-section-content"
-                >
-                  <div class="todo-panel-list">
-                    <div
-                      v-for="(todo, index) in currentTodos"
-                      :key="`${todo.fullContent}-${index}`"
-                      class="todo-item"
-                    >
-                      <div class="todo-item-icon" :class="todo.status || 'unknown'">
-                        <CheckCircleOutlined v-if="todo.status === 'completed'" />
-                        <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
-                        <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
-                        <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
-                        <QuestionCircleOutlined v-else />
-                      </div>
-                      <div class="todo-item-body">
-                        <span class="todo-item-text" :title="todo.fullContent">
-                          {{ todo.displayContent }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentStateFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('files')"
-                  aria-controls="state-section-files"
-                  @click="toggleStateSection('files')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">附件/文件</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentStateFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('files')"
-                  id="state-section-files"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div v-for="file in currentStateFiles" :key="file.key" class="state-list-item">
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentArtifactFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('artifacts')"
-                  aria-controls="state-section-artifacts"
-                  @click="toggleStateSection('artifacts')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">产物</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentArtifactFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('artifacts')"
-                  id="state-section-artifacts"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <button
-                      v-for="file in currentArtifactFiles"
-                      :key="file.path"
-                      type="button"
-                      class="state-list-item state-list-item--button"
-                      :title="`打开 ${file.name}`"
-                      @click="openPanelPreview(file)"
-                    >
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta }}</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="displaySubagentRuns.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('subagents')"
-                  aria-controls="state-section-subagents"
-                  @click="toggleStateSection('subagents')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">子智能体</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ displaySubagentRuns.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('subagents')"
-                  id="state-section-subagents"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div
-                      v-for="(run, index) in displaySubagentRuns"
-                      :key="run.id || `${run.subagent_type || 'subagent'}-${index}`"
-                      class="state-list-item"
-                      :class="{ 'is-clickable': run.child_thread_id }"
-                      @click="run.child_thread_id && openSubagentThread(run)"
-                    >
-                      <FallbackAvatar
-                        class="state-subagent-icon"
-                        :src="getSubagentIconSrc(run)"
-                        :default-src="getSubagentDefaultIconSrc(run)"
-                        :name="getSubagentRunName(run)"
-                        :seed="run.subagent_type || getSubagentRunName(run)"
-                        kind="agent"
-                        :size="28"
-                        shape="rounded"
-                        :alt="`${getSubagentRunName(run)}图标`"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title state-subagent-title">
-                          <span>{{ getSubagentRunName(run) }}</span>
-                          <CheckCircleOutlined
-                            v-if="run.status === 'completed'"
-                            class="state-subagent-status-icon state-subagent-completed-icon"
-                          />
-                          <CloseCircleOutlined
-                            v-else-if="run.status === 'failed'"
-                            class="state-subagent-status-icon state-subagent-failed-icon"
-                          />
-                          <SyncOutlined
-                            v-else-if="run.status === 'running'"
-                            spin
-                            class="state-subagent-status-icon state-subagent-running-icon"
-                          />
-                        </div>
-                        <div class="state-list-item-meta">
-                          {{ run.description || getSubagentRunMeta(run) }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div v-if="!hasVisibleStateSections" class="state-panel-empty">暂无状态内容</div>
-            </div>
-          </div>
+          <AgentPanel
+            v-if="isAgentPanelOpen"
+            :agent-state="currentAgentState"
+            :thread-id="currentChatId"
+            :agent-id="currentThread?.agent_id || currentAgentId"
+            :agent-config-id="selectedAgentConfigId"
+            :panel-ratio="panelRatio"
+            @refresh="handleAgentStateRefresh"
+            @resize="handlePanelResize"
+            @resizing="handleResizingChange"
+          />
         </div>
       </div>
-
-      <div
-        id="agent-file-panel"
-        class="side-panel side-panel--file"
-        ref="panelWrapperRef"
-        :class="{
-          'is-visible': isFilePanelOpen,
-          'no-transition': isResizing
-        }"
-        :style="{
-          width: filePanelWidthStyle
-        }"
-      >
-        <AgentPanel
-          v-if="isFilePanelOpen"
-          :agent-state="currentAgentState"
-          :thread-id="currentChatId"
-          :panel-ratio="panelRatio"
-          :preview-tabs="agentPanelPreviewTabs"
-          :active-preview-path="agentPanelActivePreviewPath"
-          :view-mode="agentPanelViewMode"
-          @close="closeFilePanel"
-          @refresh="handleAgentStateRefresh"
-          @resize="handlePanelResize"
-          @resizing="handleResizingChange"
-          @open-preview="openPanelPreview"
-          @activate-preview="activatePanelPreview"
-          @close-preview-tab="closePanelPreviewTab"
-          @close-preview-path="closePanelPreviewPath"
-          @view-mode-change="setAgentPanelViewMode"
-        />
-      </div>
     </div>
-
-    <SubagentThreadModal
-      v-model:open="subagentThreadModal.open"
-      :child-thread-id="subagentThreadModal.childThreadId"
-      :subagent-name="activeSubagentThreadName"
-      :subagent-avatar="activeSubagentThreadAvatar"
-      :subagent-default-avatar="activeSubagentThreadDefaultAvatar"
-    />
   </div>
 </template>
 
@@ -563,33 +229,18 @@ import {
   watch,
   nextTick,
   computed,
-  provide,
   onUnmounted,
   onActivated,
-  onDeactivated
+  onDeactivated,
+  h
 } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import {
-  ChevronDown,
-  FolderKanban,
-  LayoutList,
-  RefreshCw
-} from 'lucide-vue-next'
-import { formatFileSize } from '@/utils/file_utils'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import {
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  QuestionCircleOutlined,
-  SyncOutlined
-} from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
-import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import RefsComponent from '@/components/RefsComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
+import { Bot, Telescope, ChevronDown } from 'lucide-vue-next'
 import { handleChatError, handleValidationError } from '@/utils/errorHandler'
 import { ScrollController } from '@/utils/scrollController'
 import { AgentValidator } from '@/utils/agentValidator'
@@ -609,18 +260,11 @@ import { useStreamSmoother } from '@/composables/useStreamSmoother'
 import { useAgentMentionConfig } from '@/composables/useAgentMentionConfig'
 import AgentArtifactsCard from '@/components/AgentArtifactsCard.vue'
 import AgentPanel from '@/components/AgentPanel.vue'
-import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
-import SubagentThreadModal from '@/components/SubagentThreadModal.vue'
-import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
-import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
-import { getConversationDisplayItems } from '@/utils/messageGrouping'
-import { makeChildThreadId } from '@/utils/subagentThread'
 
 // ==================== PROPS & EMITS ====================
 const props = defineProps({
   agentId: { type: String, default: '' },
-  singleMode: { type: Boolean, default: true },
-  sendDisabled: { type: Boolean, default: false }
+  singleMode: { type: Boolean, default: true }
 })
 const emit = defineEmits(['thread-change'])
 
@@ -629,41 +273,56 @@ const agentStore = useAgentStore()
 const chatThreadsStore = useChatThreadsStore()
 const chatUIStore = useChatUIStore()
 const configStore = useConfigStore()
-const { agents, selectedAgentId, agentConfig, configurableItems, availableKnowledgeBases } =
-  storeToRefs(agentStore)
+const router = useRouter()
+const {
+  agents,
+  selectedAgentId,
+  defaultAgentId,
+  selectedAgentConfigId,
+  agentConfig,
+  configurableItems,
+  availableKnowledgeBases,
+  availableMcps,
+  availableSkills
+} = storeToRefs(agentStore)
 const { threads, currentThreadId, currentThread } = storeToRefs(chatThreadsStore)
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
 const sendCooldownActive = ref(false)
 let sendCooldownTimer = null
+const useRunsApi =
+  import.meta.env.VITE_USE_RUNS_API === 'true' &&
+  localStorage.getItem('force_legacy_stream') !== 'true'
+
 // 预设的打招呼文本
 const greetingMessages = [
-  '👋 您好，有什么可以帮您？',
-  '👋 你好！有什么想聊的吗？',
-  '👋 嘿，有什么我可以帮助你的？',
-  '👋 欢迎！今天想讨论什么话题？',
-  '👋 你好呀，随时为你服务！'
+  '为您的医学用药方案提供审查建议'
 ]
 
 // 随机选择一个打招呼文本
 const randomGreeting = greetingMessages[Math.floor(Math.random() * greetingMessages.length)]
 
+// 从智能体元数据获取示例问题
+const exampleQuestions = computed(() => {
+  const agentId = currentAgentId.value
+  let examples = []
+  if (agentId && agents.value && agents.value.length > 0) {
+    const agent = agents.value.find((a) => a.id === agentId)
+    examples = agent ? agent.metadata?.examples || [] : []
+  }
+  return examples.map((text, index) => ({
+    id: index + 1,
+    text: text
+  }))
+})
+
 // 业务状态（保留在组件本地）
 const chatState = reactive({
   currentThreadId: null,
   // 以threadId为键的线程状态
-  threadStates: {},
-  // 流式期间记录 父 task 工具调用 id → 子智能体 child_thread_id（首次运行时前端无法推算该 id）
-  subagentThreadByToolCall: {}
+  threadStates: {}
 })
-const recordSubagentThread = (toolCallId, childThreadId) => {
-  if (!toolCallId || !childThreadId) return
-  if (chatState.subagentThreadByToolCall[toolCallId] === childThreadId) return
-  chatState.subagentThreadByToolCall[toolCallId] = childThreadId
-}
-const getSubagentThreadIdByToolCall = (toolCallId) =>
-  (toolCallId && chatState.subagentThreadByToolCall[String(toolCallId)]) || ''
 const setCurrentThreadId = (threadId) => {
   chatState.currentThreadId = threadId || null
   chatThreadsStore.setCurrentThreadId(threadId || null)
@@ -683,15 +342,6 @@ const { getThreadState, resetOnGoingConv, stopThreadStream } = useAgentThreadSta
 const threadMessages = ref({})
 const threadFilesMap = ref({})
 const threadAttachmentsMap = ref({})
-const attachmentUploadModalOpen = ref(false)
-const isRefreshingState = ref(false)
-const collapsedStateSections = reactive({
-  tokenUsage: false,
-  todos: false,
-  files: false,
-  artifacts: false,
-  subagents: false
-})
 const threadConfigNoticeMap = ref({})
 const threadPendingConfigNoticeMap = ref({})
 const threadConfigSnapshotMap = ref({})
@@ -700,248 +350,27 @@ const configNoticeScrollVersion = ref(0)
 
 // 本地 UI 状态（仅在本组件使用）
 const localUIState = reactive({
-  chatMainWidth: typeof window !== 'undefined' ? window.innerWidth : 0,
-  chatContentWidth: typeof window !== 'undefined' ? window.innerWidth : 0
+  chatMainWidth: typeof window !== 'undefined' ? window.innerWidth : 0
 })
 
 // Agent Panel State
-const isFilePanelOpen = ref(false)
-const statePanelOpen = ref(false)
-const sideActive = computed(() => {
-  if (isFilePanelOpen.value) return 'file'
-  if (statePanelOpen.value) return 'state'
-  return ''
-})
+const isAgentPanelOpen = ref(false)
 const isResizing = ref(false)
-const defaultPanelRatio = 0.3
-const previewPanelRatio = 0.65
-const minPanelRatio = 0.25
-const maxPanelRatio = 0.75
-const minChatMainWidth = 350
-const filePanelGapWidth = 0
-const mobilePanelBreakpoint = 768
-const statePanelDockWidth = 340
-const statePanelDockMinChatWidth = 800
-const panelRatio = ref(defaultPanelRatio) // 面板宽度比例 (0-1)
-const filePanelDragWidth = ref(null)
-const agentPanelPreviewTabs = ref([])
-const agentPanelActivePreviewPath = ref('')
-const agentPanelViewMode = ref('tree')
-const chatContentContainerRef = ref(null)
+const panelRatio = ref(0.3) // 面板宽度比例 (0-1)
 const panelWrapperRef = ref(null) // 直接操作 DOM
-const TODO_NAME_MAX_LENGTH = 20
+const minPanelRatio = 0.2 // 最小比例 20%
+const maxPanelRatio = 0.8 // 最大比例 80%
 let resizeStartX = 0
 let resizeStartWidth = 0
 let panelContainerWidth = 0
-let streamingStateRefreshTimer = null
-
-const formatTodoName = (content) => {
-  return Array.from(String(content || ''))
-    .slice(0, TODO_NAME_MAX_LENGTH)
-    .join('')
-}
-
-const getPanelContainerWidth = () => {
-  const container = chatContentContainerRef.value || panelWrapperRef.value?.parentElement
-  return container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 0)
-}
-
-const getFilePanelMaxWidth = (containerWidth = getPanelContainerWidth()) => {
-  if (!containerWidth) return 0
-  if (containerWidth <= mobilePanelBreakpoint) return Math.max(0, containerWidth - 16)
-  return Math.max(0, containerWidth - minChatMainWidth - filePanelGapWidth)
-}
-
-const getFilePanelMinWidth = (containerWidth, maxWidth = getFilePanelMaxWidth(containerWidth)) => {
-  const preferredMinWidth = containerWidth <= mobilePanelBreakpoint ? 280 : 320
-  return Math.min(preferredMinWidth, maxWidth)
-}
-
-const getMaxPanelRatio = (containerWidth = getPanelContainerWidth()) => {
-  if (!containerWidth) return maxPanelRatio
-  return Math.max(
-    minPanelRatio,
-    Math.min(maxPanelRatio, getFilePanelMaxWidth(containerWidth) / containerWidth)
-  )
-}
-
-const clampPanelRatio = (ratio, containerWidth = getPanelContainerWidth()) => {
-  return Math.max(minPanelRatio, Math.min(ratio, getMaxPanelRatio(containerWidth)))
-}
-
-const filePanelWidthStyle = computed(() => {
-  if (!isFilePanelOpen.value) return '0px'
-  if (filePanelDragWidth.value !== null) return `${filePanelDragWidth.value}px`
-
-  const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
-  if (!containerWidth) return `${panelRatio.value * 100}%`
-
-  const maxWidth = getFilePanelMaxWidth(containerWidth)
-  const minWidth = getFilePanelMinWidth(containerWidth, maxWidth)
-  const preferredWidth = containerWidth * panelRatio.value
-  return `${Math.max(minWidth, Math.min(preferredWidth, maxWidth))}px`
-})
-
-const statePanelCanDock = computed(() => {
-  if (isFilePanelOpen.value) return false
-  const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
-  return containerWidth - statePanelDockWidth > statePanelDockMinChatWidth
-})
-const statePanelDocked = computed(() => statePanelOpen.value && statePanelCanDock.value)
-const statePanelFloating = computed(() => statePanelOpen.value && !statePanelDocked.value)
-
-const setPanelRatioForViewMode = () => {
-  const hasPreview = Boolean(agentPanelActivePreviewPath.value)
-  panelRatio.value = clampPanelRatio(hasPreview ? previewPanelRatio : defaultPanelRatio)
-}
-
-const showFilePanel = (mode = 'tree') => {
-  isFilePanelOpen.value = true
-  statePanelOpen.value = false
-  agentPanelViewMode.value =
-    mode === 'preview' && agentPanelActivePreviewPath.value ? 'preview' : 'tree'
-  setPanelRatioForViewMode()
-}
-
-const showFileTreePanel = () => {
-  isFilePanelOpen.value = true
-  statePanelOpen.value = false
-  agentPanelActivePreviewPath.value = ''
-  agentPanelViewMode.value = 'tree'
-  setPanelRatioForViewMode()
-}
-
-const getPanelFileName = (file) => {
-  if (file?.name) return file.name
-  if (file?.path) return String(file.path).split('/').pop() || String(file.path)
-  return '未知文件'
-}
-
-const getArtifactMetaLabel = (path) => {
-  const filename = getPanelFileName({ path })
-  if (!filename.includes('.')) return '交付文件'
-  const extension = filename.split('.').pop()
-  return extension ? `交付文件 · ${extension.toUpperCase()}` : '交付文件'
-}
-
-const getSubagentRunName = (run) => {
-  const subagentType = run?.subagent_type ? String(run.subagent_type) : ''
-  return (
-    run?.subagent_name || currentSubagentOptionBySlug.value.get(subagentType)?.name || '子智能体'
-  )
-}
-
-const getSubagentAgent = (run) => {
-  const subagentId = run?.subagent_type
-  if (!subagentId) return null
-  return agents.value.find((agent) => agent.id === subagentId || agent.slug === subagentId) || null
-}
-
-const getSubagentIconSrc = (run) => {
-  const agent = getSubagentAgent(run)
-  return agent?.icon || ''
-}
-
-const getSubagentDefaultIconSrc = (run) =>
-  run?.subagent_type ? generatePixelAvatar(run.subagent_type) : ''
-
-const getSubagentRunMeta = (run) => {
-  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts.length : 0
-  return artifacts ? `${artifacts} 个产物` : run?.id || ''
-}
-
-const normalizePanelPath = (path) => String(path || '').replace(/\/+$/, '')
-
-const isSameOrChildPanelPath = (path, targetPath) => {
-  const normalizedPath = normalizePanelPath(path)
-  const normalizedTargetPath = normalizePanelPath(targetPath)
-  if (!normalizedPath || !normalizedTargetPath) return false
-  return (
-    normalizedPath === normalizedTargetPath || normalizedPath.startsWith(`${normalizedTargetPath}/`)
-  )
-}
-
-const resetAgentPanelState = () => {
-  isFilePanelOpen.value = false
-  statePanelOpen.value = false
-  panelRatio.value = defaultPanelRatio
-  agentPanelPreviewTabs.value = []
-  agentPanelActivePreviewPath.value = ''
-  agentPanelViewMode.value = 'tree'
-}
-
-const setAgentPanelViewMode = (mode) => {
-  agentPanelViewMode.value =
-    mode === 'preview' && agentPanelActivePreviewPath.value ? 'preview' : 'tree'
-  setPanelRatioForViewMode()
-}
-
-const activatePanelPreview = (path) => {
-  if (!path) return
-  agentPanelActivePreviewPath.value = path
-  showFilePanel('preview')
-}
-
-const openPanelPreview = (file, keepTreeOpen = false) => {
-  if (!file?.path) return
-
-  const tab = {
-    ...file,
-    path: String(file.path),
-    name: getPanelFileName(file)
-  }
-  const existingIndex = agentPanelPreviewTabs.value.findIndex((item) => item.path === tab.path)
-
-  if (existingIndex >= 0) {
-    agentPanelPreviewTabs.value = agentPanelPreviewTabs.value.map((item, index) =>
-      index === existingIndex ? { ...item, ...tab } : item
-    )
-  } else {
-    agentPanelPreviewTabs.value = [...agentPanelPreviewTabs.value, tab]
-  }
-
-  agentPanelActivePreviewPath.value = tab.path
-  showFilePanel(keepTreeOpen ? 'tree' : 'preview')
-}
-
-const closePanelPreviewTab = (path) => {
-  if (!path) return
-
-  const closingIndex = agentPanelPreviewTabs.value.findIndex((item) => item.path === path)
-  const nextTabs = agentPanelPreviewTabs.value.filter((item) => item.path !== path)
-  agentPanelPreviewTabs.value = nextTabs
-
-  if (agentPanelActivePreviewPath.value !== path) return
-
-  const nextActiveTab = nextTabs[Math.min(closingIndex, nextTabs.length - 1)]
-  agentPanelActivePreviewPath.value = nextActiveTab?.path || ''
-  agentPanelViewMode.value = nextActiveTab ? 'preview' : 'tree'
-  setPanelRatioForViewMode()
-}
-
-const closePanelPreviewPath = (targetPath) => {
-  if (!targetPath) return
-
-  const nextTabs = agentPanelPreviewTabs.value.filter(
-    (item) => !isSameOrChildPanelPath(item.path, targetPath)
-  )
-  const shouldCloseActive = isSameOrChildPanelPath(agentPanelActivePreviewPath.value, targetPath)
-  agentPanelPreviewTabs.value = nextTabs
-
-  if (!shouldCloseActive) return
-
-  const nextActiveTab = nextTabs[0]
-  agentPanelActivePreviewPath.value = nextActiveTab?.path || ''
-  agentPanelViewMode.value = nextActiveTab ? 'preview' : 'tree'
-  setPanelRatioForViewMode()
-}
 
 // ==================== COMPUTED PROPERTIES ====================
 const currentAgentId = computed(() => {
   if (props.singleMode) {
-    return props.agentId || selectedAgentId.value || agents.value[0]?.id || ''
+    return props.agentId || defaultAgentId.value
+  } else {
+    return selectedAgentId.value
   }
-  return selectedAgentId.value
 })
 
 const currentAgentName = computed(() => {
@@ -953,27 +382,8 @@ const currentAgent = computed(() => {
   if (!currentAgentId.value || !agents.value || !agents.value.length) return null
   return agents.value.find((a) => a.id === currentAgentId.value) || null
 })
+const startAgents = computed(() => agents.value || [])
 const currentChatId = computed(() => currentThreadId.value)
-
-// ==================== 对话级模型覆盖 ====================
-// 按线程记忆用户选择的模型；未选择时回退到智能体配置的模型。
-const DRAFT_MODEL_KEY = '__draft__'
-const selectedModelByThread = reactive({})
-const agentDefaultModel = computed(
-  () =>
-    agentConfig.value?.model ||
-    currentAgent.value?.config_json?.context?.model ||
-    configStore.config?.default_model ||
-    ''
-)
-const currentModelSpec = computed(
-  () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
-)
-const handleModelSelect = (spec) => {
-  if (typeof spec === 'string' && spec) {
-    selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
-  }
-}
 
 const currentThreadAgentName = computed(() => {
   const threadAgentId = currentThread.value?.agent_id
@@ -985,6 +395,8 @@ const currentThreadAgentName = computed(() => {
   }
   return currentAgentName.value
 })
+const currentAgentIcon = computed(() => getAgentIconComponent(currentAgentId.value))
+
 // 检查当前智能体是否支持文件上传
 const supportsFileUpload = computed(() => {
   if (!currentAgent.value) return false
@@ -1002,301 +414,31 @@ const supportsFiles = computed(() => {
 const currentAgentState = computed(() => {
   return currentChatId.value ? getThreadState(currentChatId.value)?.agentState || null : null
 })
-const toFiniteNumber = (value) => {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : null
-}
-const TOKEN_COUNT_K_UNIT = 1024
-const formatTokenCount = (value) => {
-  const numeric = toFiniteNumber(value)
-  if (numeric === null) return '-'
-  if (numeric >= TOKEN_COUNT_K_UNIT) {
-    const digits = numeric >= TOKEN_COUNT_K_UNIT * 10 ? 1 : 2
-    return `${(numeric / TOKEN_COUNT_K_UNIT).toFixed(digits).replace(/\.0+$/, '')}k`
-  }
-  return String(Math.round(numeric))
-}
-const currentTokenUsage = computed(() => {
-  const usage = currentAgentState.value?.token_usage
-  return usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : null
-})
-const tokenUsageSegments = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-
-  const summaryTokens = usage.summary_active
-    ? Math.max(toFiniteNumber(usage.summary_message_tokens) || 0, 0)
-    : 0
-  const llmMessageTokens = Math.max(toFiniteNumber(usage.llm_messages_tokens) || 0, 0)
-  const stateMessageTokensBeforeCall = Math.max(
-    toFiniteNumber(usage.state_messages_tokens_before_call ?? usage.state_messages_tokens) || 0,
-    0
-  )
-  const messageTokens = Math.max(llmMessageTokens - summaryTokens, 0)
-  const cutMessageTokens = Math.max(stateMessageTokensBeforeCall - llmMessageTokens, 0)
-  const llmMessageCount = Math.max(toFiniteNumber(usage.llm_message_count) || 0, 0)
-  const displayMessageCount = Math.max(llmMessageCount - (usage.summary_active ? 1 : 0), 0)
-  const stateMessageCountBeforeCall = Math.max(
-    toFiniteNumber(usage.state_message_count_before_call ?? usage.state_message_count) || 0,
-    0
-  )
-  const cutMessageCount = Math.max(stateMessageCountBeforeCall - llmMessageCount, 0)
-  const systemTokens = Math.max(toFiniteNumber(usage.system_tokens) || 0, 0)
-  const toolsTokens = Math.max(toFiniteNumber(usage.tools_tokens) || 0, 0)
-  const inputTokens = Math.max(toFiniteNumber(usage.llm_input_tokens) || 0, 0)
-  const rawSegments = [
-    {
-      key: 'cut',
-      label: '已压缩',
-      value: cutMessageTokens,
-      messageCount: cutMessageCount,
-      tone: 'is-cut'
-    },
-    {
-      key: 'messages',
-      label: '消息',
-      value: messageTokens,
-      messageCount: displayMessageCount,
-      tone: 'is-messages'
-    },
-    {
-      key: 'summary',
-      label: '摘要',
-      value: summaryTokens,
-      messageCount: usage.summary_active ? 1 : 0,
-      tone: 'is-summary'
-    },
-    {
-      key: 'system',
-      label: '系统',
-      value: systemTokens,
-      tone: 'is-system'
-    },
-    {
-      key: 'tools',
-      label: `工具 (${usage.tool_count || 0})`,
-      value: toolsTokens,
-      tone: 'is-tools'
-    }
-  ].filter((segment) => segment.value > 0)
-
-  const accountedInputTokens = llmMessageTokens + systemTokens + toolsTokens
-  if (inputTokens > accountedInputTokens) {
-    rawSegments.push({
-      key: 'overhead',
-      label: '其他',
-      value: inputTokens - accountedInputTokens,
-      tone: 'is-overhead'
-    })
-  }
-
-  const segmentTotal = rawSegments.reduce((sum, segment) => sum + segment.value, 0)
-  const total = Math.max(cutMessageTokens + inputTokens, segmentTotal, 1)
-  return rawSegments.map((segment) => {
-    const ratio = segment.value / total
-    return {
-      ...segment,
-      percent: `${Math.max(0, Math.min(ratio * 100, 100)).toFixed(2)}%`,
-      valueLabel: segment.messageCount
-        ? `${formatTokenCount(segment.value)} (${segment.messageCount}条)`
-        : formatTokenCount(segment.value)
-    }
-  })
-})
-const tokenUsageStackTotal = computed(() => {
-  const inputTokens = toFiniteNumber(currentTokenUsage.value?.llm_input_tokens)
-  if (inputTokens !== null) return Math.max(inputTokens, 0)
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .reduce((sum, segment) => sum + segment.value, 0)
-})
-const tokenUsageStackLimit = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
-
-  const contextWindow = toFiniteNumber(currentTokenUsage.value?.context_window)
-  if (contextWindow && contextWindow > 0) return contextWindow
-
-  return Math.max(tokenUsageStackTotal.value, 1)
-})
-const tokenUsageHeaderPercentLabel = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  const percent = Math.max(0, Math.min((tokenUsageStackTotal.value / limit) * 100, 100))
-  if (percent > 0 && percent < 1) return '<1%'
-  return `${Math.round(percent)}%`
-})
-const tokenUsageStackHeadLabel = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) {
-    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(summaryTriggerTokens)} Token`
-  }
-  return `${formatTokenCount(tokenUsageStackTotal.value)} Token`
-})
-const tokenUsageBarSegments = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  let remaining = limit
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .map((segment) => {
-      const value = Math.min(segment.value, Math.max(remaining, 0))
-      remaining -= value
-      return {
-        ...segment,
-        percent: `${Math.max(0, Math.min((value / limit) * 100, 100)).toFixed(2)}%`
-      }
-    })
-    .filter((segment) => segment.value > 0 && segment.percent !== '0.00%')
-})
-const tokenUsageMetaRows = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-  const rows = []
-  if (toFiniteNumber(usage.context_window)) {
-    rows.push({
-      key: 'context',
-      label: '窗口/剩余',
-      value: `${formatTokenCount(usage.context_window)} / ${formatTokenCount(usage.remaining_context_tokens)}`
-    })
-  }
-  return rows
+const currentThreadFiles = computed(() => {
+  if (!currentChatId.value) return []
+  return threadFilesMap.value[currentChatId.value] || []
 })
 const currentThreadAttachments = computed(() => {
   if (!currentChatId.value) return []
   return threadAttachmentsMap.value[currentChatId.value] || []
 })
-const currentPendingThreadAttachments = computed(() =>
-  currentThreadAttachments.value.filter((attachment) => !attachment?.request_id)
-)
 const currentArtifacts = computed(() => {
   const artifacts = currentAgentState.value?.artifacts
   return Array.isArray(artifacts) ? artifacts : []
 })
-const currentArtifactFiles = computed(() =>
-  currentArtifacts.value
-    .map((path) => String(path || '').trim())
-    .filter(Boolean)
-    .map((path) => ({
-      path,
-      name: getPanelFileName({ path }),
-      meta: getArtifactMetaLabel(path)
-    }))
-)
 const currentTodos = computed(() => {
   const todos = currentAgentState.value?.todos
-  if (!Array.isArray(todos)) return []
-  return todos.map((todo) => {
-    const fullContent = String(todo?.content || '')
-    return {
-      ...todo,
-      fullContent,
-      displayContent: formatTodoName(fullContent)
-    }
-  })
+  return Array.isArray(todos) ? todos : []
 })
-const currentSubagentRuns = computed(() => {
-  const runs = currentAgentState.value?.subagent_runs
-  return Array.isArray(runs) ? runs : []
-})
-const currentSubagentRunById = computed(() => {
-  const runById = new Map()
-  currentSubagentRuns.value.forEach((run) => {
-    if (run?.id) runById.set(String(run.id), run)
-  })
-  return runById
-})
-const currentSubagentRunByThreadId = computed(() => {
-  const runByThreadId = new Map()
-  currentSubagentRuns.value.forEach((run) => {
-    if (run?.child_thread_id) runByThreadId.set(String(run.child_thread_id), run)
-  })
-  return runByThreadId
-})
-const currentSubagentOptionBySlug = computed(() => {
-  const optionBySlug = new Map()
-  mentionConfig.value.subagents.forEach((subagent) => {
-    if (subagent?.slug) optionBySlug.set(String(subagent.slug), subagent)
-  })
-  return optionBySlug
-})
-
-const subagentThreadModal = reactive({
-  open: false,
-  childThreadId: '',
-  subagentName: '',
-  subagentAvatar: '',
-  subagentDefaultAvatar: ''
-})
-const openSubagentThread = (run) => {
-  if (!run?.child_thread_id) return
-  subagentThreadModal.childThreadId = String(run.child_thread_id)
-  subagentThreadModal.subagentName = getSubagentRunName(run)
-  subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
-  subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
-  subagentThreadModal.open = true
-}
-const isStateSectionExpanded = (key) => !collapsedStateSections[key]
-const toggleStateSection = (key) => {
-  collapsedStateSections[key] = !collapsedStateSections[key]
-}
-const currentStateFiles = computed(() => {
-  const files = []
-  const seenPaths = new Set()
-  const pushFile = (entry, fallbackName = '文件') => {
-    const path = String(entry?.path || entry?.file_path || entry?.file_name || entry?.name || '')
-    if (!path || seenPaths.has(path)) return
-    seenPaths.add(path)
-    const name = entry?.file_name || entry?.name || getPanelFileName({ path }) || fallbackName
-    const sizeLabel = formatFileSize(entry?.file_size ?? entry?.size)
-    const status = entry?.status || ''
-    files.push({
-      key: path,
-      path,
-      name,
-      meta: [status, sizeLabel === '-' ? '' : sizeLabel, path].filter(Boolean).join(' · ')
-    })
-  }
-
-  const rawFiles = currentAgentState.value?.files || {}
-  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles)) {
-    Object.entries(rawFiles).forEach(([path, fileData]) => pushFile({ path, ...fileData }))
-  }
-  currentThreadAttachments.value.forEach((attachment) => pushFile(attachment, '附件'))
-
-  return files
-})
-const totalTodoCount = computed(() => currentTodos.value.length)
-const completedTodoCount = computed(
-  () => currentTodos.value.filter((todo) => todo?.status === 'completed').length
-)
-const showStateEntry = computed(() => Boolean(currentChatId.value))
-const showFileEntry = computed(() => Boolean(currentChatId.value))
-const todoProgress = computed(() => {
-  if (!totalTodoCount.value) return 0
-  return Math.round((completedTodoCount.value / totalTodoCount.value) * 100)
-})
-const stateSummaryLabel = computed(() => {
-  const total =
-    (currentTokenUsage.value ? 1 : 0) +
-    totalTodoCount.value +
-    currentStateFiles.value.length +
-    currentArtifactFiles.value.length +
-    displaySubagentRuns.value.length
-  return total ? `${total} 项` : '暂无内容'
-})
-const hasVisibleStateSections = computed(
-  () =>
-    Boolean(currentTokenUsage.value) ||
-    currentTodos.value.length > 0 ||
-    currentStateFiles.value.length > 0 ||
-    currentArtifactFiles.value.length > 0 ||
-    displaySubagentRuns.value.length > 0
-)
 
 const { mentionConfig } = useAgentMentionConfig({
   currentAgentState,
   currentThreadAttachments,
   configurableItems,
-  agentConfig
+  agentConfig,
+  availableKnowledgeBases,
+  availableMcps,
+  availableSkills
 })
 
 const currentThreadMessages = computed(() => threadMessages.value[currentChatId.value] || [])
@@ -1306,52 +448,19 @@ const currentThreadConfigNotice = computed(() => {
   return threadConfigNoticeMap.value[currentChatId.value] || null
 })
 
-const currentApprovalModalVisible = computed(
-  () =>
-    approvalState.showModal &&
-    Boolean(approvalState.threadId) &&
-    approvalState.threadId === currentChatId.value
-)
-const currentApprovalQuestions = computed(() =>
-  currentApprovalModalVisible.value ? approvalState.questions : []
-)
-
-const shouldSuppressRefsForApproval = () =>
-  currentApprovalModalVisible.value ||
-  Boolean(
-    approvalState.threadId && currentChatId.value === approvalState.threadId && isProcessing.value
-  )
-
-// 判断某轮对话是否已「收尾」，即可以展示 refs（来源/操作栏）：
-// - 后面紧跟的下一轮以 human message 开头（即用户开启了新一轮）→ 已收尾；
-// - 它是最后一轮，且当前没有正在生成回复 → 已收尾。
-// 反之（后面跟的是没有 human message 的 AI 续写，如 resume 续写；或仍在生成中）→ 未收尾，不展示。
-const isConversationSettled = (conv) => {
-  const convs = conversations.value
-  const idx = convs.indexOf(conv)
-  if (idx === -1) return false
-  const next = convs[idx + 1]
-  if (next) {
-    return next.messages?.[0]?.type === 'human'
-  }
-  return !(isProcessing.value || isReplyLoading.value)
-}
-
 // 计算是否显示Refs组件的条件
 const shouldShowRefs = computed(() => {
   return (conv) => {
-    if (!getLastMessage(conv) || conv.status === 'streaming' || shouldSuppressRefsForApproval()) {
-      return false
-    }
-    return isConversationSettled(conv)
-  }
-})
-
-const shouldShowArtifacts = computed(() => {
-  return (conv) => {
-    if (!currentArtifacts.value.length || conv.status === 'streaming') return false
-    const latestConv = conversations.value[conversations.value.length - 1]
-    return latestConv === conv
+    return (
+      getLastMessage(conv) &&
+      conv.status !== 'streaming' &&
+      !approvalState.showModal &&
+      !(
+        approvalState.threadId &&
+        chatState.currentThreadId === approvalState.threadId &&
+        isProcessing.value
+      )
+    )
   }
 })
 
@@ -1360,228 +469,28 @@ const currentThreadState = computed(() => {
   return getThreadState(currentChatId.value)
 })
 
-const getThreadOngoingMessages = (threadId) => {
-  const threadState = getThreadState(threadId)
+const onGoingConvMessages = computed(() => {
+  const threadState = currentThreadState.value
   if (!threadState || !threadState.onGoingConv) return []
 
-  const msgs = Object.values(threadState.onGoingConv.msgChunks)
-    .map(MessageProcessor.mergeMessageChunk)
-    .filter(Boolean)
+  const msgs = Object.values(threadState.onGoingConv.msgChunks).map(
+    MessageProcessor.mergeMessageChunk
+  )
   return msgs.length > 0
     ? MessageProcessor.convertToolResultToMessages(msgs).filter((msg) => msg.type !== 'tool')
     : []
-}
-
-const onGoingConvMessages = computed(() => getThreadOngoingMessages(currentChatId.value))
-
-// 供深层 TaskTool 读取子线程实时轨迹 / 首次运行时定位 child_thread_id
-provide('getThreadOngoingMessages', getThreadOngoingMessages)
-provide('getSubagentThreadIdByToolCall', getSubagentThreadIdByToolCall)
-
-// 解析父级 ongoing 里的全部 task 工具调用（按消息顺序），统一供面板与状态判定使用。
-// 注意：ongoing 期间 task 的工具结果不流式（只有 message_delta/tool_call 事件），因此这里的
-// hasResult 在流式阶段恒为 false，状态判定不能依赖它。
-const ongoingTaskCalls = computed(() => {
-  const calls = []
-  onGoingConvMessages.value.forEach((message, messageIndex) => {
-    if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
-    message.tool_calls.forEach((toolCall) => {
-      const name = toolCall?.name || toolCall?.function?.name
-      if (name !== 'task') return
-      const id = toolCall?.id ? String(toolCall.id) : ''
-      if (!id) return
-      const args = parseToolCallArgs(toolCall)
-      calls.push({
-        id,
-        messageIndex,
-        hasResult: Boolean(toolCall.tool_call_result || toolCall.result),
-        subagentType: args.subagent_type || '',
-        description: args.description || '',
-        childThreadId: args.thread_id ? String(args.thread_id) : getSubagentThreadIdByToolCall(id)
-      })
-    })
-  })
-  return calls
 })
-
-// 当前活跃（真正在执行）的 task 调用 = 最后一条「含未完成 task 调用」的 AI 消息中的那些调用。
-// steer 顺序进行 → 只有最后一条消息的调用在执行；并行 → 同一条消息的多个调用都在执行。
-// 用消息顺序判定，不依赖异步推算的 child_thread_id，避免首次运行哈希未就绪导致的状态错乱。
-const activeSubagentToolCallIds = computed(() => {
-  const pending = ongoingTaskCalls.value.filter((call) => !call.hasResult)
-  if (!pending.length) return new Set()
-  const lastMessageIndex = pending[pending.length - 1].messageIndex
-  return new Set(
-    pending.filter((call) => call.messageIndex === lastMessageIndex).map((call) => call.id)
-  )
-})
-provide('activeSubagentToolCallIds', activeSubagentToolCallIds)
-
-// agent_state.subagent_runs 仅在 task 返回（完成态）时写入；面板的运行中条目只取「活跃」调用，
-// 避免已完成的 steer 历史调用在面板里重复成额外条目。
-const runningSubagentRunsFromStream = computed(() => {
-  const activeIds = activeSubagentToolCallIds.value
-  return ongoingTaskCalls.value
-    .filter((call) => activeIds.has(call.id))
-    .map((call) => {
-      const option = call.subagentType
-        ? currentSubagentOptionBySlug.value.get(call.subagentType)
-        : null
-      return {
-        id: call.id,
-        subagent_type: call.subagentType,
-        subagent_name: option?.name || call.subagentType || '子智能体',
-        description: call.description,
-        child_thread_id: call.childThreadId || '',
-        status: 'running'
-      }
-    })
-})
-
-// 与后端 merge_subagent_runs 一致：按 child_thread_id / id 合并，运行中条目覆盖同一线程的完成态，
-// 保证每个子线程恒为一行并反映当前状态（含续跑/steer）。
-const displaySubagentRuns = computed(() => {
-  const merged = currentSubagentRuns.value.map((run) => ({ ...run }))
-  const childIndex = new Map()
-  const idIndex = new Map()
-  merged.forEach((run, index) => {
-    if (run.child_thread_id) childIndex.set(String(run.child_thread_id), index)
-    if (run.id) idIndex.set(String(run.id), index)
-  })
-  runningSubagentRunsFromStream.value.forEach((run) => {
-    let position
-    if (run.child_thread_id && childIndex.has(run.child_thread_id)) {
-      position = childIndex.get(run.child_thread_id)
-    } else if (idIndex.has(run.id)) {
-      position = idIndex.get(run.id)
-    }
-    if (position === undefined) {
-      position = merged.length
-      merged.push(run)
-    } else {
-      merged[position] = { ...merged[position], ...run }
-    }
-    if (run.child_thread_id) childIndex.set(run.child_thread_id, position)
-    idIndex.set(run.id, position)
-  })
-  return merged
-})
-
-const activeSubagentThreadRun = computed(() => {
-  if (!subagentThreadModal.childThreadId) return null
-  return (
-    displaySubagentRuns.value.find(
-      (run) => String(run?.child_thread_id || '') === subagentThreadModal.childThreadId
-    ) || null
-  )
-})
-const activeSubagentThreadName = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentRunName(activeSubagentThreadRun.value)
-    : subagentThreadModal.subagentName
-)
-const activeSubagentThreadAvatar = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentIconSrc(activeSubagentThreadRun.value) || subagentThreadModal.subagentAvatar
-    : subagentThreadModal.subagentAvatar
-)
-const activeSubagentThreadDefaultAvatar = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentDefaultIconSrc(activeSubagentThreadRun.value) ||
-      subagentThreadModal.subagentDefaultAvatar
-    : subagentThreadModal.subagentDefaultAvatar
-)
-
-// 首次运行的子智能体：前端按后端同样的哈希推算 child_thread_id，缓存到映射里供面板/轨迹定位。
-watch(
-  onGoingConvMessages,
-  (messages) => {
-    const parentThreadId = currentChatId.value
-    if (!parentThreadId) return
-    messages.forEach((message) => {
-      if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
-      message.tool_calls.forEach((toolCall) => {
-        const name = toolCall?.name || toolCall?.function?.name
-        if (name !== 'task') return
-        if (toolCall.tool_call_result || toolCall.result) return
-        const id = toolCall?.id ? String(toolCall.id) : ''
-        if (!id || chatState.subagentThreadByToolCall[id]) return
-        const args = parseToolCallArgs(toolCall)
-        if (args.thread_id || !args.subagent_type) return
-        makeChildThreadId(parentThreadId, String(args.subagent_type), id).then((childThreadId) => {
-          recordSubagentThread(id, childThreadId)
-        })
-      })
-    })
-  },
-  { deep: true }
-)
 
 const historyConversations = computed(() => {
   return MessageProcessor.convertServerHistoryToMessages(currentThreadMessages.value)
 })
 
-function getMessageRequestId(message) {
-  const metadataRequestId = message?.extra_metadata?.request_id
-  if (typeof metadataRequestId === 'string' && metadataRequestId.trim())
-    return metadataRequestId.trim()
-  if (message?.type === 'human' && typeof message.id === 'string' && message.id.trim()) {
-    return message.id.trim()
-  }
-  return null
-}
-
-function mergeLocalImageFields(message, localMessage) {
-  if (!localMessage?.image_content || message?.image_content) return message
-  return {
-    ...message,
-    message_type: localMessage.message_type || message.message_type,
-    image_content: localMessage.image_content,
-    extra_metadata: message.extra_metadata || {}
-  }
-}
-
-function mergeOngoingUserMessageIntoHistory(historyConvs, ongoingMessages) {
-  if (!Array.isArray(historyConvs) || !historyConvs.length || !Array.isArray(ongoingMessages)) {
-    return { historyConvs, ongoingMessages }
-  }
-
-  const firstOngoingMessage = ongoingMessages[0]
-  if (!firstOngoingMessage || firstOngoingMessage.type !== 'human') {
-    return { historyConvs, ongoingMessages }
-  }
-
-  const lastHistoryConv = historyConvs[historyConvs.length - 1]
-  const historyMessages = Array.isArray(lastHistoryConv?.messages) ? lastHistoryConv.messages : []
-  const historyHumanIndex = historyMessages.findIndex((message) => message?.type === 'human')
-  if (historyHumanIndex === -1) return { historyConvs, ongoingMessages }
-
-  const historyHuman = historyMessages[historyHumanIndex]
-  const historyRequestId = getMessageRequestId(historyHuman)
-  const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
-  if (!historyRequestId || !ongoingRequestId || historyRequestId !== ongoingRequestId) {
-    return { historyConvs, ongoingMessages }
-  }
-
-  const patchedHistoryHuman = mergeLocalImageFields(historyHuman, firstOngoingMessage)
-  if (patchedHistoryHuman === historyHuman) {
-    return { historyConvs, ongoingMessages: ongoingMessages.slice(1) }
-  }
-
-  const patchedHistoryMessages = [...historyMessages]
-  patchedHistoryMessages[historyHumanIndex] = patchedHistoryHuman
-  const patchedHistoryConvs = [...historyConvs]
-  patchedHistoryConvs[historyConvs.length - 1] = {
-    ...lastHistoryConv,
-    messages: patchedHistoryMessages
-  }
-  return { historyConvs: patchedHistoryConvs, ongoingMessages: ongoingMessages.slice(1) }
-}
-
 const conversations = computed(() => {
   const historyConvs = historyConversations.value
-  const { historyConvs: mergedHistoryConvs, ongoingMessages: mergedOngoingMessages } =
-    mergeOngoingUserMessageIntoHistory(historyConvs, onGoingConvMessages.value)
+  const mergedOngoingMessages = stripDuplicatedOngoingHumanMessage(
+    historyConvs,
+    onGoingConvMessages.value
+  )
 
   // 如果有进行中的消息且线程状态显示正在流式处理，添加进行中的对话
   if (mergedOngoingMessages.length > 0) {
@@ -1589,17 +498,16 @@ const conversations = computed(() => {
       messages: mergedOngoingMessages,
       status: 'streaming'
     }
-    return [...mergedHistoryConvs, onGoingConv]
+    return [...historyConvs, onGoingConv]
   }
-  return mergedHistoryConvs
+  return historyConvs
 })
 
 const conversationRows = computed(() => {
   const rows = conversations.value.map((conv, index) => ({
     type: 'conversation',
     key: conv.status === 'streaming' ? 'ongoing-conversation' : `history-${index}`,
-    conv,
-    displayItems: getDisplayItems(conv)
+    conv
   }))
 
   if (currentThreadConfigNotice.value) {
@@ -1620,14 +528,60 @@ const conversationRows = computed(() => {
   return rows
 })
 
+// 智能体图标映射
+const agentIconMap = {
+  ChatbotAgent: Bot,
+  DeepAgent: Telescope
+}
+
+const getAgentIconComponent = (agentId) => {
+  return agentIconMap[agentId] || Bot
+}
+
+const agentSegmentOptions = computed(() => {
+  return startAgents.value.map((agent) => {
+    const IconComponent = getAgentIconComponent(agent.id)
+    return {
+      label: () =>
+        h('div', { class: 'agent-option-label' }, [
+          h(IconComponent, { size: 16, class: 'agent-option-icon' }),
+          h('span', null, agent.name || 'Unknown')
+        ]),
+      value: agent.id
+    }
+  })
+})
+
+const showStartAgentSelector = computed(() => {
+  return !props.singleMode && !conversations.value.length && startAgents.value.length > 1
+})
+
+const showStartAgentDropdown = computed(() => {
+  return (
+    showStartAgentSelector.value &&
+    (startAgents.value.length >= 4 || localUIState.chatMainWidth < 380)
+  )
+})
+
+const showStartAgentSegment = computed(() => {
+  return showStartAgentSelector.value && !showStartAgentDropdown.value
+})
+
+const handleStartAgentChange = async (agentId) => {
+  if (!agentId || agentId === currentAgentId.value) return
+  if (conversations.value.length > 0) return
+  try {
+    await agentStore.selectAgent(agentId)
+  } catch (error) {
+    handleChatError(error, 'load')
+  }
+}
+
 const isLoadingMessages = computed(() => chatUIStore.isLoadingMessages)
 const isStreaming = computed(() => {
   const threadState = currentThreadState.value
   return threadState ? threadState.isStreaming : false
 })
-const shouldRefreshStateWhileStreaming = computed(
-  () => Boolean(currentChatId.value) && isStreaming.value && statePanelOpen.value
-)
 const isProcessing = computed(() => isStreaming.value)
 const isReplyLoading = computed(() => {
   const threadState = currentThreadState.value
@@ -1635,9 +589,7 @@ const isReplyLoading = computed(() => {
 })
 const isSendButtonDisabled = computed(() => {
   return (
-    sendCooldownActive.value ||
-    (props.sendDisabled && !isProcessing.value) ||
-    ((!userInput.value || !currentAgent.value) && !isProcessing.value)
+    sendCooldownActive.value || ((!userInput.value || !currentAgent.value) && !isProcessing.value)
   )
 })
 
@@ -1659,12 +611,7 @@ const createClientRequestId = () => {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-const buildOptimisticHumanMessage = ({
-  requestId,
-  text,
-  imageContent = null,
-  attachments = []
-}) => {
+const buildOptimisticHumanMessage = ({ requestId, text, imageContent = null }) => {
   const message = {
     id: requestId,
     role: 'user',
@@ -1672,8 +619,7 @@ const buildOptimisticHumanMessage = ({
     content: text,
     message_type: imageContent ? 'multimodal_image' : 'text',
     extra_metadata: {
-      request_id: requestId,
-      attachments
+      request_id: requestId
     }
   }
 
@@ -1684,32 +630,57 @@ const buildOptimisticHumanMessage = ({
   return message
 }
 
+const getMessageRequestId = (message) => {
+  if (!message || typeof message !== 'object') return null
+
+  const metadataRequestId = message.extra_metadata?.request_id
+  if (typeof metadataRequestId === 'string' && metadataRequestId.trim()) {
+    return metadataRequestId.trim()
+  }
+
+  if (message.type === 'human' && typeof message.id === 'string' && message.id.trim()) {
+    return message.id.trim()
+  }
+
+  return null
+}
+
+// 历史消息已落库时，ongoing 里仍会保留当前轮的本地 user message；
+// 切回线程后按 request_id 去掉这条重复消息，只保留仍在流式更新的部分。
+const stripDuplicatedOngoingHumanMessage = (historyConvs, ongoingMessages) => {
+  if (!Array.isArray(historyConvs) || !historyConvs.length || !Array.isArray(ongoingMessages)) {
+    return ongoingMessages
+  }
+
+  const firstOngoingMessage = ongoingMessages[0]
+  if (!firstOngoingMessage || firstOngoingMessage.type !== 'human') {
+    return ongoingMessages
+  }
+
+  const lastHistoryConv = historyConvs[historyConvs.length - 1]
+  const historyMessages = Array.isArray(lastHistoryConv?.messages) ? lastHistoryConv.messages : []
+  const lastHistoryHuman = historyMessages.find((message) => message?.type === 'human')
+  if (!lastHistoryHuman) {
+    return ongoingMessages
+  }
+
+  const historyRequestId = getMessageRequestId(lastHistoryHuman)
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
+  if (!historyRequestId || !ongoingRequestId || historyRequestId !== ongoingRequestId) {
+    return ongoingMessages
+  }
+
+  return ongoingMessages.slice(1)
+}
+
 // 发送 runs 前先在前端插入一条用户消息，避免等待 worker 轮询后消息才出现。
-const insertOptimisticHumanMessage = (
-  threadState,
-  { requestId, text, imageContent = null, attachments = [] }
-) => {
+const insertOptimisticHumanMessage = (threadState, { requestId, text, imageContent = null }) => {
   if (!threadState || !requestId) return
   threadState.pendingRequestId = requestId
   threadState.replyLoadingVisible = false
   threadState.onGoingConv.msgChunks[requestId] = [
-    buildOptimisticHumanMessage({ requestId, text, imageContent, attachments })
+    buildOptimisticHumanMessage({ requestId, text, imageContent })
   ]
-}
-
-const markAttachmentsRequestId = (threadId, attachments, requestId) => {
-  if (!threadId || !attachments.length) return null
-  const previousAttachments = threadAttachmentsMap.value[threadId] || []
-  const fileIds = new Set(attachments.map((attachment) => attachment.file_id).filter(Boolean))
-  threadAttachmentsMap.value[threadId] = previousAttachments.map((attachment) =>
-    fileIds.has(attachment.file_id) ? { ...attachment, request_id: requestId } : attachment
-  )
-  return previousAttachments
-}
-
-const rollbackAttachments = (threadId, previousAttachments) => {
-  if (!threadId || !Array.isArray(previousAttachments)) return
-  threadAttachmentsMap.value[threadId] = previousAttachments
 }
 
 const CONFIG_CHANGE_NOTICE_MESSAGE =
@@ -1727,6 +698,7 @@ const withConfigNoticeSync = async (task) => {
 const buildThreadConfigSnapshot = () => {
   return {
     agentId: currentAgentId.value || '',
+    agentConfigId: selectedAgentConfigId.value ?? null,
     configJson: JSON.stringify(agentConfig.value || {})
   }
 }
@@ -1815,6 +787,7 @@ const maybeInsertThreadConfigNotice = () => {
 
   if (
     previousSnapshot.agentId === currentSnapshot.agentId &&
+    previousSnapshot.agentConfigId === currentSnapshot.agentConfigId &&
     previousSnapshot.configJson === currentSnapshot.configJson
   ) {
     return
@@ -1869,52 +842,28 @@ const stopChatMainResizeObserver = () => {
   }
 }
 
-const stopStreamingStateRefresh = () => {
-  if (streamingStateRefreshTimer) {
-    clearInterval(streamingStateRefreshTimer)
-    streamingStateRefreshTimer = null
-  }
-}
-
-const startStreamingStateRefresh = () => {
-  stopStreamingStateRefresh()
-  streamingStateRefreshTimer = setInterval(() => {
-    if (!shouldRefreshStateWhileStreaming.value) return
-    void handleAgentStateRefresh()
-  }, 5000)
-}
-
 const startChatMainResizeObserver = () => {
   if (!window.ResizeObserver || !chatMainRef.value || chatMainResizeObserver) {
     return
   }
 
-  const syncLayoutWidths = () => {
-    localUIState.chatMainWidth = chatMainRef.value?.clientWidth || window.innerWidth
-    localUIState.chatContentWidth =
-      chatContentContainerRef.value?.clientWidth || localUIState.chatMainWidth
-  }
-
-  syncLayoutWidths()
+  localUIState.chatMainWidth = chatMainRef.value.clientWidth || window.innerWidth
   chatMainResizeObserver = new ResizeObserver((entries) => {
     // 初始化期间跳过检查，等待 layout 稳定
     if (!isResizeObserverReady) return
 
-    if (!entries.length) return
-    syncLayoutWidths()
+    for (const entry of entries) {
+      const width = entry.contentRect.width
+      if (!width) continue
+
+      localUIState.chatMainWidth = width
+    }
   })
   chatMainResizeObserver.observe(chatMainRef.value)
-  if (chatContentContainerRef.value) {
-    chatMainResizeObserver.observe(chatContentContainerRef.value)
-  }
   armResizeObserver()
 }
 
 onMounted(() => {
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', handlePageVisibilityChange)
-  }
-
   nextTick(() => {
     const chatMainContainer = document.querySelector('.chat-main')
     if (chatMainContainer) {
@@ -1933,16 +882,11 @@ onActivated(() => {
 
 onDeactivated(() => {
   stopChatMainResizeObserver()
-  stopStreamingStateRefresh()
 })
 
 onUnmounted(() => {
-  if (typeof document !== 'undefined') {
-    document.removeEventListener('visibilitychange', handlePageVisibilityChange)
-  }
   scrollController.cleanup()
   stopChatMainResizeObserver()
-  stopStreamingStateRefresh()
   if (sendCooldownTimer) {
     clearTimeout(sendCooldownTimer)
     sendCooldownTimer = null
@@ -1952,6 +896,34 @@ onUnmounted(() => {
 })
 
 // ==================== 线程管理方法 ====================
+const setThreadAgentConfigId = (threadId, agentConfigId) => {
+  if (!threadId) return
+  const thread = threads.value.find((item) => item.id === threadId)
+  if (thread) {
+    thread.metadata = {
+      ...(thread.metadata || {}),
+      agent_config_id: agentConfigId ?? null
+    }
+  }
+}
+
+const syncSelectedConfigForThread = async (thread) => {
+  const threadAgentConfigId = thread?.metadata?.agent_config_id
+  if (!threadAgentConfigId) return
+
+  const targetAgentId = thread.agent_id || currentAgentId.value
+  if (!targetAgentId) return
+
+  const configList = agentStore.agentConfigs[targetAgentId] || []
+  if (!configList.length) {
+    await agentStore.fetchAgentConfigs(targetAgentId)
+  }
+
+  if (selectedAgentConfigId.value !== threadAgentConfigId) {
+    await agentStore.selectAgentConfig(threadAgentConfigId)
+  }
+}
+
 // 获取当前智能体的线程列表
 const fetchThreads = async (agentId = null) => {
   const targetAgentId = props.singleMode ? agentId || currentAgentId.value : agentId
@@ -1990,26 +962,10 @@ const fetchThreadMessages = async ({ agentId, threadId, delay = 0 }) => {
 
   try {
     const response = await agentApi.getAgentHistory(threadId)
-    const history = response.history || []
-    threadMessages.value[threadId] = history
-    restoreThreadModelSelection(threadId, history)
+    threadMessages.value[threadId] = response.history || []
   } catch (error) {
     handleChatError(error, 'load')
     throw error
-  }
-}
-
-// 跨会话还原：用最近一条用户消息记录的 model_spec 还原模型选择
-const restoreThreadModelSelection = (threadId, history) => {
-  if (selectedModelByThread[threadId]) return
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    const msg = history[i]
-    if (msg?.type !== 'human') continue
-    const modelSpec = msg?.extra_metadata?.model_spec
-    if (modelSpec) {
-      selectedModelByThread[threadId] = modelSpec
-      return
-    }
   }
 }
 
@@ -2046,18 +1002,23 @@ const refreshThreadFilesAndAttachments = async (threadId) => {
 const handleArtifactSaved = async () => {
   if (!currentChatId.value) return
   await refreshThreadFilesAndAttachments(currentChatId.value)
-  showFileTreePanel()
+  isAgentPanelOpen.value = true
 }
 
 const fetchAgentState = async (agentId, threadId) => {
   if (!threadId) return
   try {
     const res = await agentApi.getAgentState(threadId)
-    const targetState = getThreadState(threadId)
-    if (!targetState) return
-    targetState.agentState = res.agent_state || null
+    const targetChatId = currentChatId.value || threadId
+    const ts = getThreadState(targetChatId)
+    if (ts) {
+      ts.agentState = res.agent_state || null
+    } else {
+      const newTs = getThreadState(threadId)
+      if (newTs) newTs.agentState = res.agent_state || null
+    }
   } catch {
-    // agent state is optional UI state
+    // 忽略状态拉取失败，不阻塞主流程
   }
 }
 
@@ -2075,7 +1036,8 @@ const ensureActiveThread = async (title = '新的对话') => {
   return null
 }
 
-const handleAttachmentUpload = async () => {
+const handleAttachmentUpload = async (files) => {
+  if (!files?.length) return
   if (
     !AgentValidator.validateAgentIdWithError(
       currentAgentId.value,
@@ -2085,64 +1047,47 @@ const handleAttachmentUpload = async () => {
   )
     return
 
-  attachmentUploadModalOpen.value = true
-}
+  const preferredTitle = files[0]?.name || '新的对话'
+  let threadId = currentChatId.value
 
-const ensureAttachmentThread = async () => {
-  if (currentChatId.value) return currentChatId.value
-  return await ensureActiveThread('新的对话')
-}
+  if (!threadId) {
+    threadId = await ensureActiveThread(preferredTitle)
+  }
 
-const handleTmpAttachmentsAdded = async () => {
-  const threadId = currentChatId.value
-  if (!threadId) return
-
-  await Promise.all([
-    fetchAgentState(currentAgentId.value, threadId),
-    refreshThreadFilesAndAttachments(threadId)
-  ])
-  showFileTreePanel()
-}
-
-const handleAttachmentRemove = async (attachment) => {
-  const threadId = currentChatId.value
-  const fileId = attachment?.file_id
-  if (!threadId || !fileId) return
-
-  const previousAttachments = threadAttachmentsMap.value[threadId] || []
-  threadAttachmentsMap.value[threadId] = previousAttachments.filter(
-    (item) => item.file_id !== fileId
-  )
+  if (!threadId) {
+    message.error('创建对话失败，无法上传附件')
+    return
+  }
 
   try {
-    await threadApi.deleteThreadAttachment(threadId, fileId)
+    message.loading({
+      content: '正在上传附件...',
+      key: 'upload-attachment',
+      duration: 0
+    })
+    for (const file of files) {
+      await threadApi.uploadThreadAttachment(threadId, file)
+    }
+    message.success({ content: '附件上传成功', key: 'upload-attachment', duration: 2 })
     await Promise.all([
       fetchAgentState(currentAgentId.value, threadId),
       refreshThreadFilesAndAttachments(threadId)
     ])
+    isAgentPanelOpen.value = true
   } catch (error) {
-    threadAttachmentsMap.value[threadId] = previousAttachments
-    handleChatError(error, 'delete')
+    message.destroy('upload-attachment')
+    handleChatError(error, 'upload')
   }
 }
 
 // ==================== 审批功能管理 ====================
-const {
-  approvalState,
-  processApprovalInStream,
-  restoreInterruptFromThreadState,
-  hideApprovalState
-} = useApproval({
+const { approvalState, handleApproval, processApprovalInStream } = useApproval({
   getThreadState,
+  resetOnGoingConv,
   fetchThreadMessages
 })
 
-const restorePendingInterruptForThread = (threadId) => {
-  if (!threadId) return false
-  return restoreInterruptFromThreadState(threadId)
-}
-
-const { handleStreamChunk } = useAgentStreamHandler({
+const { handleAgentResponse, handleStreamChunk } = useAgentStreamHandler({
   getThreadState,
   processApprovalInStream,
   currentAgentId,
@@ -2151,39 +1096,56 @@ const { handleStreamChunk } = useAgentStreamHandler({
 })
 const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
   getThreadState,
+  useRunsApi,
   currentAgentId,
   handleStreamChunk,
+  processApprovalInStream,
   fetchThreadMessages,
   fetchAgentState,
   resetOnGoingConv,
   onScrollToBottom: () => scrollController.scrollToBottom(),
-  streamSmoother,
-  onInterruptDetected: ({ threadId }) => {
-    restorePendingInterruptForThread(threadId)
-  },
-  onTerminalDetected: ({ threadId, touchedThreadIds = [] }) => {
-    if (approvalState.threadId === threadId || touchedThreadIds.includes(approvalState.threadId)) {
-      hideApprovalState()
-    }
-  }
+  streamSmoother
 })
 
-const resumeCurrentRunForVisiblePage = async () => {
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-  const threadId = currentChatId.value
-  if (!threadId) return
+// 发送消息并处理流式响应
+const sendMessage = async ({
+  agentId,
+  threadId,
+  text,
+  signal = undefined,
+  imageData = undefined
+}) => {
+  if (!agentId || !threadId || !text) {
+    const error = new Error('Missing agent, thread, or message text')
+    handleChatError(error, 'send')
+    return Promise.reject(error)
+  }
+
+  if (!selectedAgentConfigId.value) {
+    const error = new Error('Missing agent_config_id')
+    handleChatError(error, 'send')
+    return Promise.reject(error)
+  }
+
+  setThreadAgentConfigId(threadId, selectedAgentConfigId.value)
+
+  const requestData = {
+    query: text,
+    thread_id: threadId,
+    agent_config_id: selectedAgentConfigId.value
+  }
+
+  // 如果有图片，添加到请求中
+  if (imageData && imageData.imageContent) {
+    requestData.image_content = imageData.imageContent
+  }
 
   try {
-    await resumeActiveRunForThread(threadId)
-    restorePendingInterruptForThread(threadId)
+    return await agentApi.sendAgentMessage(requestData, signal ? { signal } : undefined)
   } catch (error) {
-    console.warn('Failed to resume current run after page became visible:', error)
+    handleChatError(error, 'send')
+    throw error
   }
-}
-
-const handlePageVisibilityChange = () => {
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-  void resumeCurrentRunForVisiblePage()
 }
 
 // ==================== CHAT ACTIONS ====================
@@ -2214,7 +1176,7 @@ const selectChat = async (chatId) => {
   }
 
   if (previousThreadId !== chatId) {
-    resetAgentPanelState()
+    isAgentPanelOpen.value = false
   }
 
   try {
@@ -2230,6 +1192,7 @@ const selectChat = async (chatId) => {
         await agentStore.selectAgent(targetChat.agent_id)
       }
 
+      await syncSelectedConfigForThread(targetChat)
       syncThreadConfigSnapshot(chatId)
     })
   } catch (error) {
@@ -2253,7 +1216,6 @@ const selectChat = async (chatId) => {
   await handleAgentStateRefresh(chatId)
   syncThreadConfigSnapshot(chatId, { overwrite: false })
   await resumeActiveRunForThread(chatId)
-  restorePendingInterruptForThread(chatId)
 }
 
 const selectThreadFromRoute = async (threadId) => {
@@ -2267,7 +1229,7 @@ const selectThreadFromRoute = async (threadId) => {
       stopThreadStream(previousThreadId)
       stopRunStreamSubscription(previousThreadId)
     }
-    resetAgentPanelState()
+    isAgentPanelOpen.value = false
     setCurrentThreadId(null)
     return true
   }
@@ -2292,14 +1254,13 @@ const selectThreadFromRoute = async (threadId) => {
 const handleSendMessage = async ({ image } = {}) => {
   const text = userInput.value.trim()
   const imageContent = image?.imageContent || null
-  if (
-    (!text && !image) ||
-    !currentAgent.value ||
-    isProcessing.value ||
-    sendCooldownActive.value ||
-    props.sendDisabled
-  )
+  if ((!text && !image) || !currentAgent.value || isProcessing.value || sendCooldownActive.value)
     return
+
+  if (!selectedAgentConfigId.value) {
+    message.error('请先选择智能体配置后再发送消息')
+    return
+  }
 
   // 发送后进入短暂冷却，防止连续触发停止
   startSendCooldown()
@@ -2311,17 +1272,7 @@ const handleSendMessage = async ({ image } = {}) => {
       message.error('创建对话失败，请重试')
       return
     }
-    // 新建线程：把草稿态的模型选择迁移到真实线程，避免选择丢失
-    const draftModelSpec = selectedModelByThread[DRAFT_MODEL_KEY]
-    if (draftModelSpec) {
-      if (!selectedModelByThread[threadId]) {
-        selectedModelByThread[threadId] = draftModelSpec
-      }
-      delete selectedModelByThread[DRAFT_MODEL_KEY]
-    }
   }
-  // 仅当用户显式选择过模型才下发覆盖；否则传 null，由后端使用智能体配置的模型
-  const modelSpec = selectedModelByThread[threadId] || null
 
   userInput.value = ''
 
@@ -2330,16 +1281,66 @@ const handleSendMessage = async ({ image } = {}) => {
 
   const threadState = getThreadState(threadId)
   if (!threadState) return
-  threadState.pendingInterrupt = null
-  if (approvalState.threadId === threadId) {
-    hideApprovalState()
+
+  if (useRunsApi) {
+    if ((threadMessages.value[threadId] || []).length === 0) {
+      const autoTitle = text.replace(/\s+/g, ' ').trim().slice(0, 2000)
+      if (autoTitle) {
+        void (async () => {
+          try {
+            const generatedTitle = await agentApi.generateTitle(
+              autoTitle,
+              configStore.config?.fast_model
+            )
+            if (generatedTitle) {
+              const finalTitle = generatedTitle.slice(0, 30).replace(/\s+/g, ' ').trim()
+              if (finalTitle) {
+                void chatThreadsStore.updateThread(threadId, finalTitle).catch(() => {})
+              }
+            }
+          } catch (e) {
+            console.error('Title generation failed:', e)
+            // 失败时使用原始文本作为标题
+            void chatThreadsStore.updateThread(threadId, autoTitle.slice(0, 30)).catch(() => {})
+          }
+        })()
+      }
+    }
+
+    resetOnGoingConv(threadId)
+    const requestId = createClientRequestId()
+    insertOptimisticHumanMessage(threadState, {
+      requestId,
+      text,
+      imageContent
+    })
+    threadState.isStreaming = true
+    try {
+      const runResp = await agentApi.createAgentRun({
+        query: text,
+        agent_config_id: selectedAgentConfigId.value,
+        thread_id: threadId,
+        meta: {
+          request_id: requestId
+        },
+        image_content: imageContent
+      })
+      const runId = runResp?.run_id
+      if (!runId) {
+        throw new Error('创建 run 失败：缺少 run_id')
+      }
+      await startRunStream(threadId, runId, 0)
+    } catch (error) {
+      threadState.isStreaming = false
+      threadState.replyLoadingVisible = false
+      threadState.pendingRequestId = null
+      resetOnGoingConv(threadId)
+      handleChatError(error, 'send')
+    }
+    return
   }
 
-  const pendingAttachments = [...currentPendingThreadAttachments.value]
-  const pendingAttachmentFileIds = pendingAttachments
-    .map((attachment) => attachment.file_id)
-    .filter(Boolean)
-
+  // 如果是新对话，用 fast-model 异步生成标题（不阻塞消息发送）
   if ((threadMessages.value[threadId] || []).length === 0) {
     const autoTitle = text.replace(/\s+/g, ' ').trim().slice(0, 2000)
     if (autoTitle) {
@@ -2357,50 +1358,50 @@ const handleSendMessage = async ({ image } = {}) => {
           }
         } catch (e) {
           console.error('Title generation failed:', e)
+          // 失败时使用原始文本作为标题
           void chatThreadsStore.updateThread(threadId, autoTitle.slice(0, 30)).catch(() => {})
         }
       })()
     }
   }
 
+  threadState.isStreaming = true
   resetOnGoingConv(threadId)
   const requestId = createClientRequestId()
-  const previousAttachments = markAttachmentsRequestId(threadId, pendingAttachments, requestId)
   insertOptimisticHumanMessage(threadState, {
     requestId,
     text,
-    imageContent,
-    attachments: pendingAttachments.map((attachment) => ({
-      ...attachment,
-      request_id: requestId
-    }))
+    imageContent
   })
-  threadState.isStreaming = true
+  threadState.streamAbortController = new AbortController()
 
   try {
-    const runResp = await agentApi.createAgentRun({
-      query: text,
-      agent_id: currentAgentId.value,
-      thread_id: threadId,
-      meta: {
-        request_id: requestId,
-        attachment_file_ids: pendingAttachmentFileIds
-      },
-      image_content: imageContent,
-      model_spec: modelSpec
+    const response = await sendMessage({
+      agentId: currentAgentId.value,
+      threadId: threadId,
+      text: text,
+      signal: threadState.streamAbortController?.signal,
+      imageData: image
     })
-    const runId = runResp?.run_id
-    if (!runId) {
-      throw new Error('创建 run 失败：缺少 run_id')
-    }
-    await startRunStream(threadId, runId, 0)
+
+    await handleAgentResponse(response, threadId)
   } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('Stream error:', error)
+      handleChatError(error, 'send')
+    } else {
+      console.warn('[Interrupted] Catch')
+    }
     threadState.isStreaming = false
-    threadState.replyLoadingVisible = false
-    threadState.pendingRequestId = null
-    rollbackAttachments(threadId, previousAttachments)
-    resetOnGoingConv(threadId)
-    handleChatError(error, 'send')
+  } finally {
+    threadState.streamAbortController = null
+    // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(() => {
+      // 历史记录加载完成后，安全地清空当前进行中的对话
+      resetOnGoingConv(threadId)
+      handleAgentStateRefresh(threadId)
+      scrollController.scrollToBottom()
+    })
   }
 }
 
@@ -2412,27 +1413,39 @@ const handleSendOrStop = async (payload) => {
 
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
-  if (isProcessing.value && threadState?.activeRunId) {
-    try {
-      await agentApi.cancelAgentRun(threadState.activeRunId)
-      threadState.pendingInterrupt = null
-      if (approvalState.threadId === threadId) {
-        hideApprovalState()
+  if (isProcessing.value && threadState) {
+    if (useRunsApi && threadState.activeRunId) {
+      try {
+        await agentApi.cancelAgentRun(threadState.activeRunId)
+        message.info('已发送取消请求')
+      } catch (error) {
+        handleChatError(error, 'stop')
       }
-      message.info('已发送取消请求')
-    } catch (error) {
-      handleChatError(error, 'stop')
+      return
     }
-    return
+
+    if (threadState.streamAbortController) {
+      // 中断生成
+      threadState.streamAbortController.abort()
+
+      // 中断后刷新消息历史，确保显示最新的状态
+      try {
+        await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 })
+        fetchAgentState(currentAgentId.value, threadId)
+        message.info('已中断对话生成')
+      } catch (error) {
+        console.error('刷新消息历史失败:', error)
+        message.info('已中断对话生成')
+      }
+      return
+    }
   }
-  if (props.sendDisabled) return
   await handleSendMessage(payload)
 }
 
 // ==================== 人工审批处理 ====================
 const handleApprovalWithStream = async (answer) => {
   const threadId = approvalState.threadId
-  const parentRunId = approvalState.parentRunId
   if (!threadId) {
     message.error('无效的提问请求')
     approvalState.showModal = false
@@ -2446,42 +1459,30 @@ const handleApprovalWithStream = async (answer) => {
     return
   }
 
-  if (!parentRunId) {
-    message.error('无法找到需要恢复的运行任务')
-    approvalState.showModal = false
-    return
-  }
-
-  const pendingInterrupt = threadState.pendingInterrupt
-
   try {
-    hideApprovalState()
-    threadState.pendingInterrupt = null
-    threadState.isStreaming = true
-    resetOnGoingConv(threadId)
-    const resumeRequestId = createClientRequestId()
-    const runResp = await agentApi.createAgentRun({
-      query: null,
-      agent_id: currentAgentId.value,
-      thread_id: threadId,
-      meta: { request_id: resumeRequestId },
-      resume: answer,
-      parent_run_id: parentRunId,
-      resume_request_id: resumeRequestId
-    })
-    const runId = runResp?.run_id
-    if (!runId) {
-      throw new Error('创建 resume run 失败：缺少 run_id')
-    }
-    await startRunStream(threadId, runId, '0-0')
+    // 使用审批 composable 处理审批
+    const response = await handleApproval(answer, currentAgentId.value, selectedAgentConfigId.value)
+
+    if (!response) return // 如果 handleApproval 抛出错误，这里不会执行
+
+    // 处理流式响应
+    await handleAgentResponse(response, threadId)
   } catch (error) {
-    if (pendingInterrupt) {
-      threadState.pendingInterrupt = pendingInterrupt
-      restorePendingInterruptForThread(threadId)
+    if (error.name !== 'AbortError') {
+      console.error('Resume approval error:', error)
     }
-    threadState.isStreaming = false
-    threadState.replyLoadingVisible = false
-    handleChatError(error, 'resume')
+  } finally {
+    if (threadState) {
+      threadState.isStreaming = false
+      threadState.streamAbortController = null
+    }
+
+    // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(() => {
+      resetOnGoingConv(threadId)
+      fetchAgentState(currentAgentId.value, threadId)
+      scrollController.scrollToBottom()
+    })
   }
 }
 
@@ -2491,6 +1492,14 @@ const handleQuestionSubmit = (answer) => {
 
 const handleQuestionCancel = () => {
   handleApprovalWithStream('reject')
+}
+
+// 处理示例问题点击
+const handleExampleClick = (questionText) => {
+  userInput.value = questionText
+  nextTick(() => {
+    handleSendMessage()
+  })
 }
 
 const buildExportPayload = () => {
@@ -2523,40 +1532,19 @@ const handleAgentStateRefresh = async (threadId = null) => {
   if (!currentAgentId.value) return
   const chatId = threadId || currentChatId.value
   if (!chatId) return
-  isRefreshingState.value = true
-  try {
-    await Promise.all([
-      fetchAgentState(currentAgentId.value, chatId),
-      refreshThreadFilesAndAttachments(chatId)
-    ])
-  } finally {
-    isRefreshingState.value = false
-  }
-}
-
-const toggleStatePanel = async () => {
-  const nextOpen = !statePanelOpen.value
-  statePanelOpen.value = nextOpen
-  if (nextOpen && currentChatId.value && !currentAgentState.value) {
-    await handleAgentStateRefresh()
-  }
-}
-
-const closeFilePanel = () => {
-  isFilePanelOpen.value = false
-  filePanelDragWidth.value = null
+  await Promise.all([
+    fetchAgentState(currentAgentId.value, chatId),
+    refreshThreadFilesAndAttachments(chatId)
+  ])
 }
 
 const toggleAgentPanel = async () => {
-  const nextOpen = !isFilePanelOpen.value
+  const nextOpen = !isAgentPanelOpen.value
+  isAgentPanelOpen.value = nextOpen
 
-  if (!nextOpen) {
-    closeFilePanel()
-    return
+  if (nextOpen) {
+    await handleAgentStateRefresh()
   }
-
-  showFileTreePanel()
-  await handleAgentStateRefresh()
 }
 
 // 处理面板宽度调整（使用比例）
@@ -2565,20 +1553,16 @@ const handlePanelResize = (clientX) => {
   if (!panelWrapperRef.value) return
 
   if (!panelContainerWidth) {
-    panelContainerWidth = getPanelContainerWidth()
+    const container = document.querySelector('.chat-content-container')
+    panelContainerWidth = container ? container.clientWidth : window.innerWidth
   }
 
   const deltaX = clientX - resizeStartX
-  const rawWidth = resizeStartWidth - deltaX
-  const maxWidth = getFilePanelMaxWidth(panelContainerWidth)
-  const minWidth = getFilePanelMinWidth(panelContainerWidth, maxWidth)
-  const nextWidth = Math.max(minWidth, Math.min(rawWidth, maxWidth))
+  const newWidth = resizeStartWidth - deltaX
+  const newRatio = newWidth / panelContainerWidth
 
-  filePanelDragWidth.value = nextWidth
-
-  if (nextWidth !== rawWidth) {
-    resizeStartX = clientX
-    resizeStartWidth = nextWidth
+  if (newRatio >= minPanelRatio && newRatio <= maxPanelRatio) {
+    panelWrapperRef.value.style.setProperty('flex', `0 0 ${newWidth}px`, 'important')
   }
 }
 
@@ -2589,20 +1573,17 @@ const handleResizingChange = (isResizingState, clientX = 0) => {
   if (isResizingState && panelWrapperRef.value) {
     resizeStartX = clientX
     resizeStartWidth = panelWrapperRef.value.offsetWidth
-    filePanelDragWidth.value = resizeStartWidth
     if (!panelContainerWidth) {
-      panelContainerWidth = getPanelContainerWidth()
+      const container = document.querySelector('.chat-content-container')
+      panelContainerWidth = container ? container.clientWidth : window.innerWidth
     }
     return
   }
 
   if (!isResizingState && panelWrapperRef.value && panelContainerWidth) {
-    const finalWidth = filePanelDragWidth.value ?? panelWrapperRef.value.offsetWidth
-    panelRatio.value = clampPanelRatio(finalWidth / panelContainerWidth, panelContainerWidth)
-  }
-
-  if (!isResizingState) {
-    filePanelDragWidth.value = null
+    const finalWidth = panelWrapperRef.value.offsetWidth
+    panelRatio.value = finalWidth / panelContainerWidth
+    panelWrapperRef.value.style.removeProperty('flex')
     resizeStartX = 0
     resizeStartWidth = 0
     panelContainerWidth = 0 // 重置，供下次使用
@@ -2610,16 +1591,102 @@ const handleResizingChange = (isResizingState, clientX = 0) => {
 }
 
 // ==================== HELPER FUNCTIONS ====================
+const extractAssistantMessageBody = (message) => {
+  let content = typeof message?.content === 'string' ? message.content.trim() : ''
+  let reasoningContent = message?.additional_kwargs?.reasoning_content || ''
+
+  if (!reasoningContent && content) {
+    const thinkRegex = /<think>(.*?)<\/think>|<think>(.*?)$/s
+    const thinkMatch = content.match(thinkRegex)
+
+    if (thinkMatch) {
+      reasoningContent = (thinkMatch[1] || thinkMatch[2] || '').trim()
+      content = content.replace(thinkMatch[0], '').trim()
+    }
+  }
+
+  return { content, reasoningContent }
+}
+
+const hasVisibleAssistantBody = (message) => {
+  if (!message || message.type !== 'ai') return true
+
+  const { content, reasoningContent } = extractAssistantMessageBody(message)
+  return Boolean(
+    content ||
+    reasoningContent ||
+    message.error_type ||
+    message.extra_metadata?.error_type ||
+    message.isStoppedByUser
+  )
+}
+
 const getMessageToolCalls = (message) => {
-  return enrichTaskToolCalls(message?.tool_calls, {
-    subagentRunById: currentSubagentRunById.value,
-    subagentRunByThreadId: currentSubagentRunByThreadId.value,
-    subagentOptionBySlug: currentSubagentOptionBySlug.value
+  if (!Array.isArray(message?.tool_calls)) return []
+
+  return message.tool_calls.filter((toolCall) => {
+    return (
+      toolCall &&
+      (toolCall.id || toolCall.name || toolCall.function?.name) &&
+      (toolCall.args !== undefined ||
+        toolCall.function?.arguments !== undefined ||
+        toolCall.tool_call_result !== undefined)
+    )
   })
 }
 
-const getDisplayItems = (conv) =>
-  getConversationDisplayItems(conv, { enrichToolCalls: getMessageToolCalls })
+// 将 AI 消息拆成“正文块”和“工具块”，再跨消息合并相邻工具块。
+const getConversationDisplayItems = (conv) => {
+  if (!Array.isArray(conv?.messages) || conv.messages.length === 0) return []
+
+  const items = []
+  let pendingToolGroup = null
+
+  const flushToolGroup = () => {
+    if (pendingToolGroup && pendingToolGroup.toolCalls.length > 0) {
+      items.push(pendingToolGroup)
+    }
+    pendingToolGroup = null
+  }
+
+  conv.messages.forEach((message, index) => {
+    if (message.type !== 'ai') {
+      flushToolGroup()
+      items.push({
+        type: 'message',
+        key: message.id || `message-${index}`,
+        message,
+        sourceIndex: index
+      })
+      return
+    }
+
+    if (hasVisibleAssistantBody(message)) {
+      flushToolGroup()
+      items.push({
+        type: 'message',
+        key: message.id || `message-${index}`,
+        message,
+        sourceIndex: index
+      })
+    }
+
+    const toolCalls = getMessageToolCalls(message)
+    if (toolCalls.length === 0) return
+
+    if (!pendingToolGroup) {
+      pendingToolGroup = {
+        type: 'tool-group',
+        key: `tool-group-${message.id || index}`,
+        toolCalls: []
+      }
+    }
+    pendingToolGroup.toolCalls.push(...toolCalls)
+  })
+
+  flushToolGroup()
+  return items
+}
 
 const isDisplayMessageProcessing = (conv, displayItem) => {
   return (
@@ -2644,13 +1711,20 @@ const getLastMessage = (conv) => {
   return null
 }
 
-const showMsgRefs = (msg, conv) => {
-  if (shouldSuppressRefsForApproval()) {
+const showMsgRefs = (msg) => {
+  // 如果正在审批中，不显示 refs
+  if (approvalState.showModal) {
     return false
   }
 
-  // 该消息所在对话未收尾（后面跟的是没有 human message 的 AI 续写，或仍在生成）时不展示
-  if (!isConversationSettled(conv)) {
+  // 如果当前线程ID与审批线程ID匹配，但审批框已关闭（说明刚刚处理完审批）
+  // 且当前有新的流式处理正在进行，则不显示之前被中断的消息的 refs
+  if (
+    approvalState.threadId &&
+    chatState.currentThreadId === approvalState.threadId &&
+    !approvalState.showModal &&
+    isProcessing
+  ) {
     return false
   }
 
@@ -2671,7 +1745,6 @@ const loadChatsList = async () => {
   if (props.singleMode && !agentId) {
     console.warn('No agent selected, cannot load chats list')
     threads.value = []
-    resetAgentPanelState()
     setCurrentThreadId(null)
     threadFilesMap.value = {}
     threadAttachmentsMap.value = {}
@@ -2714,31 +1787,6 @@ onMounted(async () => {
   scrollController.enableAutoScroll()
 })
 
-watch(showStateEntry, (visible) => {
-  if (!visible && statePanelOpen.value) {
-    statePanelOpen.value = false
-  }
-})
-
-watch(showFileEntry, (visible) => {
-  if (!visible && isFilePanelOpen.value) {
-    closeFilePanel()
-  }
-})
-
-watch(
-  shouldRefreshStateWhileStreaming,
-  (shouldRefresh) => {
-    if (shouldRefresh) {
-      void handleAgentStateRefresh()
-      startStreamingStateRefresh()
-    } else {
-      stopStreamingStateRefresh()
-    }
-  },
-  { immediate: true }
-)
-
 watch(
   currentAgentId,
   async (newAgentId, oldAgentId) => {
@@ -2755,7 +1803,6 @@ watch(
       threadMessages.value = {}
       threadFilesMap.value = {}
       threadAttachmentsMap.value = {}
-      resetAgentPanelState()
       // 清理所有线程状态
       resetOnGoingConv()
 
@@ -2782,6 +1829,11 @@ watch(
 
 watch(currentAgentId, (newAgentId, oldAgentId) => {
   if (oldAgentId === undefined || newAgentId === oldAgentId) return
+  maybeInsertThreadConfigNotice()
+})
+
+watch(selectedAgentConfigId, (newConfigId, oldConfigId) => {
+  if (oldConfigId === undefined || newConfigId === oldConfigId) return
   maybeInsertThreadConfigNotice()
 })
 
@@ -2814,14 +1866,57 @@ watch(
 
 watch(currentChatId, (threadId, oldThreadId) => {
   if (threadId === oldThreadId) return
-  if (!threadId || approvalState.threadId !== threadId) {
-    hideApprovalState()
-  }
-  if (threadId) {
-    restorePendingInterruptForThread(threadId)
-  }
   emit('thread-change', threadId || '')
 })
+
+// ==================== Undo / Fork 时间旅行 ====================
+
+const handleUndo = async (msg) => {
+  const threadId = currentChatId.value
+  if (!threadId || !msg?.id) return
+
+  // 提取被撤销的用户消息文本，用于回填输入框
+  const undoneContent = msg.content || ''
+
+  try {
+    const result = await threadApi.undoThread(threadId, msg.id)
+    message.success('已撤销')
+
+    // 将被撤销的提示词回填到输入框，方便用户修改后重发
+    if (undoneContent) {
+      userInput.value = undoneContent
+    }
+
+    // 重新加载当前线程的消息历史
+    if (currentAgentId.value) {
+      await fetchThreadMessages({
+        agentId: currentAgentId.value,
+        threadId,
+      })
+      scrollController.scrollToBottom()
+    }
+  } catch (error) {
+    handleChatError(error, 'undo')
+  }
+}
+
+const handleFork = async (msg) => {
+  const threadId = currentChatId.value
+  if (!threadId || !msg?.id) return
+
+  try {
+    const result = await threadApi.forkThread(threadId, msg.id)
+    message.success('已分叉到新会话')
+
+    // 跳转到新会话
+    const newThreadId = result.new_thread_id
+    if (newThreadId) {
+      router.push({ name: 'AgentCompWithThreadId', params: { thread_id: newThreadId } })
+    }
+  } catch (error) {
+    handleChatError(error, 'fork')
+  }
+}
 </script>
 
 <style lang="less" scoped>
@@ -2836,8 +1931,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .chat {
-  --header-height: 40px;
-
   position: relative;
   flex: 1;
   display: flex;
@@ -2851,17 +1944,11 @@ watch(currentChatId, (threadId, oldThreadId) => {
     user-select: none;
     z-index: 10;
     height: var(--header-height);
-    min-height: var(--header-height);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 8px;
+    padding: 1rem 8px;
     flex-shrink: 0; /* Prevent header from shrinking */
-    transition: padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-    &.has-active-thread {
-      border-bottom: 1px solid var(--gray-150);
-    }
 
     .header__left,
     .header__right {
@@ -2880,8 +1967,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
     }
 
     .conversation-title {
-      font-size: 14px;
-      line-height: 20px;
+      font-size: 15px;
       font-weight: 400;
       color: var(--text-primary);
       max-width: 200px;
@@ -2889,17 +1975,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
       text-overflow: ellipsis;
       white-space: nowrap;
       margin-left: 8px;
-    }
-  }
-
-  &.has-file-panel .chat-header {
-    padding-right: calc(var(--file-panel-width) + 8px);
-  }
-
-  &.is-resizing-file-panel {
-    .chat-header,
-    .chat-main {
-      transition: none;
     }
   }
 }
@@ -2922,108 +1997,46 @@ watch(currentChatId, (threadId, oldThreadId) => {
   position: relative;
   transition:
     flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 0; /* Prevent flex item from overflowing */
 
   scrollbar-width: none;
 }
 
-.chat-content-container.has-file-panel .chat-main {
-  margin-right: var(--file-panel-width);
-}
-
-.side-panel {
+.agent-panel-wrapper {
   flex: 0 0 auto;
+  align-self: stretch;
+  height: auto;
   overflow: hidden;
-  background: var(--gray-0);
-  border: 1px solid var(--gray-150);
-  border-radius: 10px;
-  box-shadow:
-    0 16px 40px var(--shadow-1),
-    0 2px 10px var(--shadow-0);
   z-index: 20;
+  margin: 0 8px 8px;
+  margin-left: 0;
+  background: var(--gray-0);
+  border-radius: 16px;
+  border: 1px solid var(--gray-150);
   min-width: 0;
+  will-change: flex-basis;
+}
+
+/* Workbench transition animations */
+.agent-panel-wrapper {
+  transition: flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0;
-  pointer-events: none;
   transform: translateX(10px);
-  will-change: width, flex-basis, opacity, transform;
-  transition:
-    width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: -16px;
 }
 
-.side-panel.is-visible {
+.agent-panel-wrapper.is-visible {
   opacity: 1;
-  pointer-events: auto;
   transform: translateX(0);
+  margin-left: 0;
 }
 
-.side-panel.no-transition {
+.agent-panel-wrapper.no-transition {
   transition: none !important;
 }
 
-.side-panel--file {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
-  display: flex;
-  height: auto;
-  max-width: 100%;
-  border: none;
-  border-left: 1px solid var(--gray-150);
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.side-panel--file.is-visible {
-  min-width: 0;
-}
-
-.side-panel--state {
-  height: auto;
-  max-height: calc(100% - 8px);
-  max-width: min(340px, calc(100vw - 24px));
-  box-shadow: 0 4px 16px var(--shadow-0);
-  overflow: auto;
-}
-
-.side-panel--state.is-visible {
-  min-width: 300px;
-}
-
-.side-panel--state.is-docked {
-  align-self: flex-start;
-  margin: 8px 8px 8px 0;
-  max-height: calc(100% - 16px);
-}
-
-.side-panel--state.is-floating {
-  position: absolute;
-  top: 8px;
-  right: calc(var(--file-panel-width) + 8px);
-  width: min(340px, calc(100% - var(--file-panel-width) - 24px));
-  min-width: 0;
-  max-height: calc(100% - 16px);
-  margin: 0;
-  z-index: 26;
-  box-shadow:
-    0 12px 28px var(--shadow-1),
-    0 2px 8px var(--shadow-0);
-}
-
-.state-panel {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--gray-0);
-}
-
-.chat-greeting-input {
+.chat-examples-input {
   padding: 24px 0;
   text-align: center;
 
@@ -3145,6 +2158,45 @@ watch(currentChatId, (threadId, oldThreadId) => {
   font-size: 12px;
 }
 
+.example-questions {
+  margin-top: 16px;
+  text-align: center;
+
+  .example-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .example-chip {
+    padding: 6px 12px;
+    background: var(--gray-25);
+    // border: 1px solid var(--gray-100);
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--gray-700);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &:hover {
+      // background: var(--main-25);
+      border-color: var(--main-200);
+      color: var(--main-700);
+      box-shadow: 0 0px 4px rgba(0, 0, 0, 0.03);
+    }
+
+    &:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+  }
+}
+
 .chat-loading {
   padding: 0 50px;
   text-align: center;
@@ -3178,7 +2230,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
   max-width: 800px;
   margin: 0 auto;
   flex-grow: 1;
-  padding: 1rem var(--page-padding);
+  padding: 1rem 1.5rem;
   display: flex;
   flex-direction: column;
 }
@@ -3225,14 +2277,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
       margin: 4px 0;
       user-select: none;
     }
-  }
-
-  .input-model-selector {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    max-width: min(168px, calc(100vw - 160px));
   }
 
   &.start-screen {
@@ -3323,48 +2367,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
   }
 }
 
-@media (max-width: 1024px) {
-  .chat-content-container.has-file-panel .chat-main,
-  .chat-content-container.has-state-panel .chat-main {
-    min-width: 350px;
-  }
-
-  .side-panel--file.is-visible,
-  .side-panel--state.is-docked.is-visible {
-    max-width: 100%;
-  }
-}
-
 @media (max-width: 768px) {
-  .chat.has-file-panel .chat-header {
-    padding-right: 8px;
-  }
-
-  .chat-content-container.has-file-panel .chat-main,
-  .chat-content-container.has-state-panel .chat-main {
-    margin-right: 0;
-    min-width: 0;
-  }
-
-  .side-panel--file {
-    top: calc(var(--header-height) + 4px);
-  }
-
-  .side-panel--file.is-visible {
-    min-width: 0;
-    max-width: calc(100% - 16px);
-  }
-
-  .side-panel--state.is-visible {
-    min-width: 0;
-    max-width: calc(100% - 24px);
-  }
-
-  .side-panel--state.is-floating {
-    right: 12px;
-    width: min(320px, calc(100% - 24px));
-  }
-
   .agent-segment-wrapper {
     margin-bottom: 8px;
 
@@ -3415,17 +2418,16 @@ watch(currentChatId, (threadId, oldThreadId) => {
 <style lang="less">
 .agent-nav-btn {
   display: flex;
-  gap: 5px;
-  padding: 4px 7px;
-  height: 28px;
+  gap: 6px;
+  padding: 6px 8px;
+  height: 32px;
   justify-content: center;
   align-items: center;
   border-radius: 6px;
   color: var(--gray-900);
   cursor: pointer;
   width: auto;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 15px;
   transition: background-color 0.3s;
   border: none;
   background: transparent;
@@ -3441,466 +2443,12 @@ watch(currentChatId, (threadId, oldThreadId) => {
   }
 
   .nav-btn-icon {
-    width: 16px;
-    height: 16px;
+    height: 18px;
   }
 
   .loading-icon {
     animation: spin 1s linear infinite;
   }
-}
-
-.side-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: var(--header-height);
-  padding: 4px 12px;
-  background: var(--gray-25);
-  border-bottom: 1px solid var(--gray-100);
-  flex-shrink: 0;
-}
-
-.state-entry-btn.active {
-  color: var(--main-700);
-  background-color: var(--main-20);
-}
-
-.state-panel-header {
-  padding: 10px 14px;
-  padding-bottom: 0px;
-  background: transparent;
-  border-bottom: none;
-}
-
-.state-panel-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.state-refresh-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  color: var(--gray-500);
-  background: transparent;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    color: var(--main-700);
-    background: var(--gray-100);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-
-  .is-spinning {
-    animation: spin 1s linear infinite;
-  }
-}
-
-.state-panel-title {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--gray-500);
-}
-
-.state-panel-summary,
-.state-section-meta {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.state-panel-body {
-  flex: 1;
-  min-height: 0;
-  padding: 8px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: auto;
-}
-
-.state-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  &.is-collapsed {
-    gap: 0;
-  }
-}
-
-.state-section-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover {
-    .state-section-title,
-    .state-section-chevron {
-      color: var(--gray-900);
-    }
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-200);
-    outline-offset: 2px;
-  }
-}
-
-.state-section-label {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.state-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-800);
-}
-
-.state-section-chevron {
-  flex-shrink: 0;
-  color: var(--gray-500);
-  transition:
-    transform 0.18s ease,
-    color 0.18s ease;
-
-  &.is-collapsed {
-    transform: rotate(-90deg);
-  }
-}
-
-.state-section-content {
-  min-width: 0;
-}
-
-.state-panel-empty {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--gray-25);
-  color: var(--gray-500);
-  font-size: 13px;
-  text-align: center;
-}
-
-.token-usage-content {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 2px;
-}
-
-.token-usage-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.token-usage-stack-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--gray-500);
-}
-
-.token-usage-stack-head strong {
-  color: var(--gray-900);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-
-.token-usage-stack-track {
-  display: flex;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--gray-100);
-}
-
-.token-usage-stack-segment {
-  height: 100%;
-  min-width: 2px;
-  transition: width 0.2s ease;
-}
-
-.token-usage-stack-legend {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  font-size: 11px;
-  color: var(--gray-500);
-}
-
-.token-usage-stack-legend-item {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.token-usage-stack-legend-item i {
-  width: 7px;
-  height: 7px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  background: var(--gray-300);
-}
-
-.token-usage-stack-segment,
-.token-usage-stack-legend-item i {
-  &.is-cut {
-    background-color: var(--main-500);
-    background-image: repeating-linear-gradient(
-      135deg,
-      var(--main-30) 0,
-      var(--main-30) 1px,
-      transparent 1px,
-      transparent 4px
-    );
-  }
-
-  &.is-messages {
-    background: var(--main-500);
-  }
-
-  &.is-summary {
-    background: var(--color-info-500);
-  }
-
-  &.is-system {
-    background: var(--color-success-500);
-  }
-
-  &.is-tools {
-    background: var(--color-warning-500);
-  }
-
-  &.is-overhead {
-    background: var(--gray-300);
-  }
-}
-
-.token-usage-breakdown {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
-  padding-top: 2px;
-}
-
-.token-usage-breakdown-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.token-usage-breakdown-row span,
-.token-usage-breakdown-row strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.token-usage-breakdown-row strong {
-  color: var(--gray-800);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.todo-panel-list {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.todo-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  border-bottom: 1px solid var(--gray-50);
-}
-
-.todo-item:last-child {
-  border-bottom: none;
-}
-
-.todo-item-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--gray-50);
-  color: var(--gray-500);
-
-  &.completed {
-    background: var(--color-success-10);
-    color: var(--color-success-700);
-  }
-
-  &.in_progress {
-    background: var(--color-info-10);
-    color: var(--color-info-700);
-  }
-
-  &.pending {
-    background: var(--color-warning-10);
-    color: var(--color-warning-700);
-  }
-
-  &.cancelled {
-    background: var(--color-error-10);
-    color: var(--color-error-700);
-  }
-}
-
-.todo-item-body {
-  min-width: 0;
-}
-
-.todo-item-text {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--gray-700);
-  word-break: break-word;
-}
-
-.state-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.state-list-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--gray-100);
-  border-radius: 10px;
-  background: var(--gray-25);
-  color: inherit;
-  text-align: left;
-}
-
-.state-list-item--button {
-  cursor: pointer;
-}
-
-.state-list-item--button:hover,
-.state-list-item.is-clickable:hover {
-  border-color: var(--main-200);
-  background: var(--gray-0);
-}
-
-.state-list-item.is-clickable {
-  cursor: pointer;
-}
-
-.state-list-item-icon {
-  flex-shrink: 0;
-  font-size: 17px;
-}
-
-.state-list-item-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.state-list-item-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-900);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.state-list-item-meta {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--gray-500);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.state-subagent-icon {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  border: 1px solid var(--gray-150);
-  border-radius: 7px;
-  background: var(--gray-0);
-  object-fit: cover;
-}
-
-.state-subagent-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.state-subagent-title span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.state-subagent-status-icon {
-  flex-shrink: 0;
-  font-size: 13px;
-}
-
-.state-subagent-completed-icon {
-  color: var(--color-success-700);
-}
-
-.state-subagent-failed-icon {
-  color: var(--color-error-700);
-}
-
-.state-subagent-running-icon {
-  color: var(--color-info-700);
 }
 
 .hide-text {
@@ -3915,12 +2463,12 @@ watch(currentChatId, (threadId, oldThreadId) => {
 
 /* AgentState 按钮有内容时的样式 */
 .agent-nav-btn.agent-state-btn.has-content:hover:not(.is-disabled) {
-  color: var(--gray-900);
-  background-color: var(--gray-100);
+  color: var(--main-700);
+  background-color: var(--main-20);
 }
 
 .agent-nav-btn.agent-state-btn.active {
-  color: var(--gray-900);
-  background-color: var(--gray-100);
+  color: var(--main-700);
+  background-color: var(--main-20);
 }
 </style>

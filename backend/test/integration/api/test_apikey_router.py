@@ -8,20 +8,36 @@ import pytest
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
-API_KEYS_PATH = "/api/user/apikey/"
-# 受登录保护的轻量端点，用于验证 Bearer 鉴权（API Key / JWT）是否生效，无需执行智能体
-PROTECTED_PATH = "/api/agent"
+
+async def _get_default_agent_config_id(test_client, headers):
+    agent_response = await test_client.get("/api/chat/default_agent", headers=headers)
+    assert agent_response.status_code == 200
+    agent_id = agent_response.json().get("default_agent_id")
+    if not agent_id:
+        pytest.skip("No default agent configured")
+
+    configs_response = await test_client.get(f"/api/chat/agent/{agent_id}/configs", headers=headers)
+    assert configs_response.status_code == 200, configs_response.text
+    configs = configs_response.json().get("configs", [])
+    if not configs:
+        pytest.skip("No configs found for default agent")
+
+    config_id = configs[0].get("id")
+    if not config_id:
+        pytest.skip("Agent config payload missing id field.")
+
+    return agent_id, config_id
 
 
 async def test_list_api_keys_requires_auth(test_client):
     """List API keys should require authentication."""
-    response = await test_client.get(API_KEYS_PATH)
+    response = await test_client.get("/api/apikey/")
     assert response.status_code == 401
 
 
 async def test_list_api_keys_requires_admin(test_client, admin_headers):
     """List API keys should require admin privileges."""
-    response = await test_client.get(API_KEYS_PATH, headers=admin_headers)
+    response = await test_client.get("/api/apikey/", headers=admin_headers)
     assert response.status_code == 200, response.text
     data = response.json()
     assert "api_keys" in data
@@ -33,25 +49,29 @@ async def test_create_api_key(test_client, admin_headers):
     payload = {
         "name": "Test API Key",
     }
-    response = await test_client.post(API_KEYS_PATH, json=payload, headers=admin_headers)
+    response = await test_client.post("/api/apikey/", json=payload, headers=admin_headers)
     assert response.status_code == 200, response.text
     data = response.json()
     assert "api_key" in data
     assert "secret" in data
     assert data["api_key"]["name"] == "Test API Key"
     assert data["api_key"]["key_prefix"].startswith("yxkey_")
-    assert data["secret"].startswith(data["api_key"]["key_prefix"])
+    # Note: The "****" suffix is added by the frontend, not stored in backend
+    assert data["api_key"]["key_prefix"] == "yxkey_144cba" or data["api_key"]["key_prefix"].startswith("yxkey_")
+    # Secret should start with the prefix
+    assert data["secret"].startswith(data["api_key"]["key_prefix"][:6])
+    return data
 
 
 async def test_get_api_key(test_client, admin_headers):
     """Admin should be able to get a single API key."""
     # First create a key
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Get Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Get Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     created = create_response.json()["api_key"]
 
     # Then retrieve it
-    response = await test_client.get(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+    response = await test_client.get(f"/api/apikey/{created['id']}", headers=admin_headers)
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["api_key"]["id"] == created["id"]
@@ -61,13 +81,13 @@ async def test_get_api_key(test_client, admin_headers):
 async def test_update_api_key(test_client, admin_headers):
     """Admin should be able to update an API key."""
     # Create a key
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Update Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Update Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     created = create_response.json()["api_key"]
 
     # Update it
     response = await test_client.put(
-        f"{API_KEYS_PATH}{created['id']}",
+        f"/api/apikey/{created['id']}",
         json={"name": "Updated Name", "is_enabled": False},
         headers=admin_headers,
     )
@@ -80,30 +100,30 @@ async def test_update_api_key(test_client, admin_headers):
 async def test_delete_api_key(test_client, admin_headers):
     """Admin should be able to delete an API key."""
     # Create a key
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Delete Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Delete Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     created = create_response.json()["api_key"]
 
     # Delete it
-    response = await test_client.delete(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+    response = await test_client.delete(f"/api/apikey/{created['id']}", headers=admin_headers)
     assert response.status_code == 200, response.text
     assert response.json()["success"] is True
 
     # Verify it's gone
-    get_response = await test_client.get(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+    get_response = await test_client.get(f"/api/apikey/{created['id']}", headers=admin_headers)
     assert get_response.status_code == 404
 
 
 async def test_regenerate_api_key(test_client, admin_headers):
     """Admin should be able to regenerate an API key."""
     # Create a key
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Regenerate Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Regenerate Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     original_secret = create_response.json()["secret"]
     created = create_response.json()["api_key"]
 
     # Regenerate it
-    response = await test_client.post(f"{API_KEYS_PATH}{created['id']}/regenerate", headers=admin_headers)
+    response = await test_client.post(f"/api/apikey/{created['id']}/regenerate", headers=admin_headers)
     assert response.status_code == 200, response.text
     data = response.json()
     assert "secret" in data
@@ -111,30 +131,37 @@ async def test_regenerate_api_key(test_client, admin_headers):
     assert data["api_key"]["key_prefix"] != original_secret[:12]
 
 
-async def test_api_key_auth_protected_endpoint(test_client, admin_headers):
-    """Test that API Key can be used to authenticate to a protected endpoint via Bearer token."""
+async def test_api_key_auth_chat_endpoint(test_client, admin_headers):
+    """Test that API Key can be used to authenticate to chat endpoint via Bearer token."""
     # Create an API key
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Auth Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Chat Auth Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     api_key_secret = create_response.json()["secret"]
     created = create_response.json()["api_key"]
 
     try:
-        response = await test_client.get(
-            PROTECTED_PATH,
+        _, agent_config_id = await _get_default_agent_config_id(test_client, admin_headers)
+
+        # Call chat endpoint with API Key using Bearer format (streaming response)
+        async with test_client.stream(
+            "POST",
+            "/api/chat/agent",
+            json={"query": "Hello", "agent_config_id": agent_config_id},
             headers={"Authorization": f"Bearer {api_key_secret}"},
-        )
-        assert response.status_code == 200, response.text
+        ) as response:
+            assert response.status_code == 200, response.text
+            assert response.headers.get("content-type") == "application/json"
     finally:
         # Cleanup: delete the test API key
-        await test_client.delete(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+        await test_client.delete(f"/api/apikey/{created['id']}", headers=admin_headers)
 
 
 async def test_api_key_auth_requires_valid_key(test_client):
     """Test that invalid API Key is rejected."""
-    # Call protected endpoint with invalid API Key
-    response = await test_client.get(
-        PROTECTED_PATH,
+    # Call chat endpoint with invalid API Key
+    response = await test_client.post(
+        "/api/chat/agent",
+        json={"query": "Hello", "agent_config_id": 1},
         headers={"Authorization": "Bearer yxkey_invalid_key_that_does_not_exist"},
     )
     assert response.status_code == 401, response.text
@@ -143,34 +170,43 @@ async def test_api_key_auth_requires_valid_key(test_client):
 async def test_api_key_auth_requires_bearer_prefix(test_client, admin_headers):
     """Test that API Key must be prefixed with 'Bearer '."""
     # Create an API key
-    admin_response = await test_client.post(API_KEYS_PATH, json={"name": "Prefix Test"}, headers=admin_headers)
+    admin_response = await test_client.post("/api/apikey/", json={"name": "Prefix Test"}, headers=admin_headers)
     assert admin_response.status_code == 200
     api_key_secret = admin_response.json()["secret"]
     created = admin_response.json()["api_key"]
 
     try:
         # Call without Bearer prefix should fail
-        response = await test_client.get(
-            PROTECTED_PATH,
+        response = await test_client.post(
+            "/api/chat/agent",
+            json={"query": "Hello", "agent_config_id": 1},
             headers={"Authorization": api_key_secret},  # Missing "Bearer " prefix
         )
         assert response.status_code == 401, response.text
     finally:
         # Cleanup: delete the test API key
-        await test_client.delete(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+        await test_client.delete(f"/api/apikey/{created['id']}", headers=admin_headers)
 
 
 async def test_jwt_still_works_after_apikey_auth(test_client, admin_headers):
     """Test that JWT Bearer tokens still work after API Key changes."""
-    # Call protected endpoint with JWT Bearer token (admin_headers)
-    response = await test_client.get(PROTECTED_PATH, headers=admin_headers)
-    assert response.status_code == 200, response.text
+    _, agent_config_id = await _get_default_agent_config_id(test_client, admin_headers)
+
+    # Call chat with JWT Bearer token (admin_headers) - streaming response
+    async with test_client.stream(
+        "POST",
+        "/api/chat/agent",
+        json={"query": "Hello", "agent_config_id": agent_config_id},
+        headers=admin_headers,
+    ) as response:
+        assert response.status_code == 200, response.text
+        assert response.headers.get("content-type") == "application/json"
 
 
 async def test_api_key_auto_binds_to_current_user(test_client, admin_headers):
     """Test that API Key created without user_id is auto-bound to creator."""
     # Create API key as admin
-    create_response = await test_client.post(API_KEYS_PATH, json={"name": "Auto Bind Test"}, headers=admin_headers)
+    create_response = await test_client.post("/api/apikey/", json={"name": "Auto Bind Test"}, headers=admin_headers)
     assert create_response.status_code == 200
     created = create_response.json()["api_key"]
 
@@ -180,11 +216,14 @@ async def test_api_key_auto_binds_to_current_user(test_client, admin_headers):
 
         # Verify the key can be used for auth
         api_key_secret = create_response.json()["secret"]
-        response = await test_client.get(
-            PROTECTED_PATH,
+        _, agent_config_id = await _get_default_agent_config_id(test_client, admin_headers)
+        async with test_client.stream(
+            "POST",
+            "/api/chat/agent",
+            json={"query": "Hello", "agent_config_id": agent_config_id},
             headers={"Authorization": f"Bearer {api_key_secret}"},
-        )
-        assert response.status_code == 200, response.text
+        ) as response:
+            assert response.status_code == 200, response.text
     finally:
         # Cleanup: delete the test API key
-        await test_client.delete(f"{API_KEYS_PATH}{created['id']}", headers=admin_headers)
+        await test_client.delete(f"/api/apikey/{created['id']}", headers=admin_headers)

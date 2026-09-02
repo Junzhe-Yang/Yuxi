@@ -6,7 +6,7 @@ from loguru import logger as loguru_logger
 
 from yuxi.utils.datetime_utils import shanghai_now
 
-SAVE_DIR = "saves"
+SAVE_DIR = os.getenv("SAVE_DIR") or "saves"
 DATETIME = shanghai_now().strftime("%Y-%m-%d")
 LOG_FILE = f"{SAVE_DIR}/logs/yuxi-{DATETIME}.log"
 
@@ -31,13 +31,20 @@ class LoguruHandler(logging.Handler):
 
 
 def _setup_logging_bridge():
-    """配置 logging 到 loguru 的桥接，捕获第三方库日志"""
+    """配置 logging 到 loguru 的桥接，捕获第三方库日志（如 LightRAG）"""
     loguru_handler = LoguruHandler()
     loguru_handler.setLevel(logging.DEBUG)
 
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     loguru_handler.setFormatter(formatter)
 
+    # 桥接 LightRAG 日志
+    lightrag_logger = logging.getLogger("lightrag")
+    lightrag_logger.addHandler(loguru_handler)
+    lightrag_logger.setLevel(logging.DEBUG)
+    lightrag_logger.propagate = False  # 避免重复
+
+    # 桥接其他常见第三方库（降低级别减少噪音）
     for lib in ["httpx", "openai", "neo4j", "urllib3"]:
         lib_logger = logging.getLogger(lib)
         lib_logger.addHandler(loguru_handler)

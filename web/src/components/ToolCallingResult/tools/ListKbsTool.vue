@@ -69,7 +69,7 @@ const headerSummary = computed(() => {
 .list-kbs-result {
   background: var(--gray-0);
   border-radius: 8px;
-  padding: 8px;
+  padding: 12px 16px;
 
   .kb-count {
     font-size: 12px;

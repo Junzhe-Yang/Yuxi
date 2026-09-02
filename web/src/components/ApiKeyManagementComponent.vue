@@ -5,23 +5,13 @@
       <div class="header-content">
         <div class="section-title">API Key 管理</div>
         <p class="section-description">
-          用于外部系统调用 Agent 对话接口。密钥仅显示一次，请妥善保管。
+          创建和管理 API Key，用于外部系统调用 Agent 对话接口。密钥仅显示一次，请妥善保管。
         </p>
       </div>
-      <div class="header-actions">
-        <a-button
-          @click="handleRefresh"
-          :loading="refreshing"
-          title="刷新"
-          class="refresh-btn lucide-icon-btn"
-        >
-          <template #icon><RefreshCw :size="16" :class="{ spin: refreshing }" /></template>
-        </a-button>
-        <a-button type="primary" @click="showCreateModal" class="add-btn lucide-icon-btn">
-          <Plus :size="14" />
-          创建 API Key
-        </a-button>
-      </div>
+      <a-button type="primary" @click="showCreateModal" class="add-btn lucide-icon-btn">
+        <Plus :size="14" />
+        创建 API Key
+      </a-button>
     </div>
 
     <!-- 主内容区域 -->
@@ -156,7 +146,6 @@ import { Key as KeyIcon } from 'lucide-vue-next'
 import { apikeyApi } from '@/apis/apikey_api'
 
 const loading = ref(false)
-const refreshing = ref(false)
 const error = ref(null)
 const apiKeys = ref([])
 
@@ -192,21 +181,6 @@ const loadApiKeys = async () => {
     error.value = e.message || '加载失败'
   } finally {
     loading.value = false
-  }
-}
-
-// 刷新 API Key 列表
-const handleRefresh = async () => {
-  if (refreshing.value) return
-  refreshing.value = true
-  try {
-    await loadApiKeys()
-    message.success('刷新成功')
-  } catch (e) {
-    console.error('刷新失败:', e)
-    message.error('刷新失败')
-  } finally {
-    refreshing.value = false
   }
 }
 
@@ -288,58 +262,6 @@ onMounted(() => {
 
 <style lang="less" scoped>
 .apikey-management {
-  .header-section {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 16px;
-    margin-bottom: 16px;
-
-    .header-content {
-      flex: 1;
-      min-width: 0;
-
-      .section-title {
-        font-size: 16px;
-        font-weight: 500;
-        color: var(--gray-900);
-        line-height: 1.4;
-        margin: 12px 0 12px;
-      }
-
-      .section-description {
-        font-size: 14px;
-        color: var(--gray-600);
-        line-height: 1.4;
-        margin: 0;
-      }
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .refresh-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--gray-25);
-        }
-
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-      }
-    }
-  }
-
   .content-section {
     .error-message {
       margin-bottom: 16px;
@@ -472,15 +394,6 @@ onMounted(() => {
         }
       }
     }
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 

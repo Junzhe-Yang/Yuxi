@@ -1,7 +1,7 @@
 <template>
   <a-modal
     v-model:open="visible"
-    width="800px"
+    width="1200px"
     :footer="null"
     :closable="false"
     wrap-class-name="file-detail"
@@ -12,7 +12,7 @@
       <div class="modal-title-wrapper">
         <!-- 左侧：文件名和图标 -->
         <div class="file-title">
-          <FileTypeIcon :name="file?.filename" :size="18" />
+          <component :is="fileIcon" :style="{ color: fileIconColor, fontSize: '18px' }" />
           <span class="file-name">{{ file?.filename || '文件详情' }}</span>
         </div>
 
@@ -31,9 +31,10 @@
 
           <!-- 下载按钮下拉菜单 -->
           <a-dropdown trigger="click" v-if="file">
-            <a-button type="default" class="download-btn" title="下载" aria-label="下载">
-              <Download :size="16" />
-              <ChevronDown :size="14" />
+            <a-button type="default" class="download-btn">
+              <template #icon><Download :size="16" /></template>
+              下载
+              <ChevronDown :size="16" style="margin-left: 4px" />
             </a-button>
             <template #overlay>
               <a-menu @click="handleDownloadMenuClick">
@@ -117,15 +118,15 @@
 </template>
 
 <script setup>
-import { computed, h, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useDatabaseStore } from '@/stores/database'
 import { message } from 'ant-design-vue'
 import { documentApi } from '@/apis/knowledge_api'
 import { mergeChunks } from '@/utils/chunkUtils'
+import { getFileIcon, getFileIconColor } from '@/utils/file_utils'
 import { getPreviewTypeByPath } from '@/utils/file_preview'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { Download, ChevronDown, FileSearch, FileText, Rows3, X } from 'lucide-vue-next'
+import { Download, ChevronDown, FileText, X } from 'lucide-vue-next'
 
 const store = useDatabaseStore()
 
@@ -136,6 +137,10 @@ const visible = computed({
 
 const file = computed(() => store.selectedFile)
 const loading = computed(() => store.state.fileDetailLoading)
+
+// 文件图标
+const fileIcon = computed(() => getFileIcon(file.value?.filename))
+const fileIconColor = computed(() => getFileIconColor(file.value?.filename))
 
 const downloadingOriginal = ref(false)
 const downloadingMarkdown = ref(false)
@@ -159,28 +164,15 @@ const hasSourcePreview = computed(() => ['image', 'pdf'].includes(sourcePreviewT
 // 是否有实际的分块数据
 const hasChunks = computed(() => mappedChunks.value && mappedChunks.value.length > 0)
 
-const makeViewModeOption = (label, value, icon) => ({
-  label: h(
-    'span',
-    {
-      class: 'view-option-icon',
-      title: label,
-      'aria-label': label
-    },
-    [h(icon, { size: 15 })]
-  ),
-  value
-})
-
 const viewModeOptions = computed(() => {
   const options = []
   if (hasSourcePreview.value) {
-    options.push(makeViewModeOption('源文件', 'source', FileSearch))
+    options.push({ label: '源文件', value: 'source' })
   }
-  options.push(makeViewModeOption('Markdown', 'markdown', FileText))
+  options.push({ label: 'Markdown', value: 'markdown' })
   // 只有当有实际的分块数据时才显示 Chunks 选项
   if (hasChunks.value) {
-    options.push(makeViewModeOption('Chunks', 'chunks', Rows3))
+    options.push({ label: 'Chunks', value: 'chunks' })
   }
   return options
 })
@@ -243,12 +235,12 @@ const afterOpenChange = (open) => {
 }
 
 const loadSourcePreview = async () => {
-  if (!file.value?.file_id || !store.kbId || !hasSourcePreview.value) return
+  if (!file.value?.file_id || !store.databaseId || !hasSourcePreview.value) return
   if (sourcePreviewUrl.value) return
 
   sourcePreviewLoading.value = true
   try {
-    const response = await documentApi.downloadDocument(store.kbId, file.value.file_id)
+    const response = await documentApi.downloadDocument(store.databaseId, file.value.file_id)
     const blob = await response.blob()
     revokeSourcePreviewUrl()
     sourcePreviewUrl.value = window.URL.createObjectURL(blob)
@@ -276,15 +268,15 @@ const handleDownloadOriginal = async () => {
     return
   }
 
-  const kbId = store.kbId
-  if (!kbId) {
+  const dbId = store.databaseId
+  if (!dbId) {
     message.error('无法获取数据库ID，请刷新页面后重试')
     return
   }
 
   downloadingOriginal.value = true
   try {
-    const response = await documentApi.downloadDocument(kbId, file.value.file_id)
+    const response = await documentApi.downloadDocument(dbId, file.value.file_id)
 
     // 获取文件名
     const contentDisposition = response.headers.get('content-disposition')
@@ -496,9 +488,7 @@ const handleDownloadMarkdown = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
   width: 100%;
-  min-width: 0;
 }
 
 /* 文件标题样式 */
@@ -506,20 +496,9 @@ const handleDownloadMarkdown = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
-
-  svg {
-    flex: 0 0 auto;
-  }
 }
 
 .file-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-weight: 600;
   font-size: 15px;
   color: var(--gray-900);
@@ -534,27 +513,22 @@ const handleDownloadMarkdown = () => {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
+  gap: 12px;
   margin-left: auto;
-  min-width: 0;
 }
 
 /* 下载按钮样式 */
 .download-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
-  min-width: 40px;
-  padding: 0;
+  padding: 4px 8px;
   height: 28px;
+  font-size: 13px;
   line-height: 1;
   border-radius: 6px;
-  gap: 2px;
+  gap: 4px;
 
   svg {
-    flex: 0 0 auto;
     vertical-align: middle;
   }
 }
@@ -564,7 +538,6 @@ const handleDownloadMarkdown = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 28px;
   width: 28px;
   height: 28px;
   border: none;
@@ -584,37 +557,10 @@ const handleDownloadMarkdown = () => {
 .view-controls {
   display: flex;
   align-items: center;
-  flex: 0 0 auto;
-
-  .ant-segmented {
-    padding: 2px;
-  }
-
-  .ant-segmented-item {
-    min-width: 30px;
-  }
-
-  .ant-segmented-item-label {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 24px;
-    min-height: 24px;
-    padding: 0 7px;
-    line-height: 24px;
-  }
-}
-
-.view-option-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
+  gap: 8px;
 }
 
 .view-info {
-  flex: 0 0 auto;
   font-size: 12px;
   color: var(--gray-500);
   white-space: nowrap;

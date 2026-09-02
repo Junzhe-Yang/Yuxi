@@ -66,7 +66,7 @@ const run = () => {
     true
   )
 
-  // 2. 对象包装的 data.chunks 提取
+  // 2. LightRAG data.chunks 提取
   assert.equal(
     chunks.some((c) => c.content === 'B' && c.kb_name === 'LightGraphKB'),
     true
@@ -91,29 +91,6 @@ const run = () => {
   const idxA = chunks.findIndex((c) => c.content === 'A')
   const idxB = chunks.findIndex((c) => c.content === 'B')
   assert.equal(idxA < idxB, true)
-
-  const conversations = MessageProcessor.convertServerHistoryToMessages([
-    { type: 'human', content: '请选择语言' },
-    { type: 'ai', content: '请选择输出语言' },
-    {
-      type: 'human',
-      content: '{"language":"python"}',
-      extra_metadata: { source: 'ask_user_question_resume' }
-    },
-    { type: 'ai', content: '这是 Python 版本' }
-  ])
-
-  assert.equal(conversations.length, 1)
-  assert.equal(conversations[0].messages.length, 3)
-  assert.equal(conversations[0].messages.at(-1).content, '这是 Python 版本')
-  assert.equal(conversations[0].messages.at(-1).isLast, true)
-  assert.equal(conversations[0].status, 'finished')
-
-  const assistantBody = MessageProcessor.parseAssistantMessageBody({
-    type: 'ai',
-    content: '<think>推理过程</think>最终答案'
-  })
-  assert.deepEqual(assistantBody, { content: '最终答案', reasoningContent: '推理过程' })
 
   console.log('messageProcessor extractKnowledgeChunksFromConversation: all assertions passed')
 }

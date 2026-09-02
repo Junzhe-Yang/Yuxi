@@ -8,9 +8,8 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 
 | 类型 | 格式 | 说明 |
 |------|------|------|
-| 文本 | .txt, .md, .html, .htm | 直接提取内容 |
+| 文本 | .txt, .md, .html | 直接提取内容 |
 | Word | .docx | 保留格式和结构 |
-| PowerPoint | .pptx | 保留主要文本结构 |
 | PDF | .pdf | 支持文本和图片 PDF |
 | 表格 | .csv, .xls, .xlsx | 识别表格结构 |
 | JSON | .json | 结构化数据 |
@@ -18,7 +17,7 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 ### 图片文件
 
 对于图片文件，需要启用 OCR 才能提取文字：
-- .jpg, .jpeg, .png, .bmp, .tiff, .tif
+- .jpg, .jpeg, .png, .bmp, .tiff, .tif, .gif, .webp
 
 ### 压缩包
 
@@ -36,7 +35,9 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 3. 内置去重机制，避免重复抓取
 
 ::: tip URL 白名单配置
-示例：`YUXI_URL_WHITELIST=github.com,*.wikipedia.org,docs.python.org`
+示例：`YUXI_URL_WHITELIST=github.com,*.wikipedia.org,docs.python.org,172.27.86.91`
+
+白名单项匹配 URL 的 hostname，不包含端口。命中白名单的普通内网 IP 可用于内网知识库接入；`localhost`、`127.0.0.1`、`169.254.169.254` 等回环或链路本地地址仍会被安全策略拦截。
 :::
 
 ## OCR 方案选择
@@ -68,19 +69,17 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 
 ### MinerU（高精度）
 
-项目已内置 mineru-api 服务（位于 docker-compose.yml，属于 all profile），无需额外下载官方 compose 文件。首次构建镜像时会基于 docker/mineru.Dockerfile 下载模型，该过程耗时较长。
-
-启动服务（需要 GPU）：
+首先从官网下载最新的 docker-compose 文件：
 
 ```bash
-docker compose --profile all up -d --build mineru-api
+wget https://gcore.jsdelivr.net/gh/opendatalab/MinerU@master/docker/compose.yaml -O docker/mineru.compose.yml
 ```
 
-该服务在 `30001` 端口提供 `/file_parse` 接口，后端 `api` / `worker` 默认通过 `MINERU_API_URI=http://mineru-api:30001` 连接，通常无需额外配置。
+启动服务（需要 GPU）
 
-::: tip 显存不足
-若显存有限导致启动失败，可在 `docker-compose.yml` 的 `mineru-api` 服务下放开 `--gpu-memory-utilization` 参数（如 `0.5`，必要时进一步降低）。
-:::
+```bash
+docker compose -f docker/mineru.compose.yml --profile openai-server up -d
+```
 
 ### MinerU Official（云服务）
 
@@ -122,4 +121,3 @@ HOST_IP=your_server_ip
 2. **GPU 要求**：MinerU 和 PP-Structure-V3 需要 GPU 支持
 3. **API 密钥**：部分服务需要额外的 API 密钥配置
 4. **超时处理**：复杂文档解析可能耗时较长，可通过 `MINERU_TIMEOUT` 环境变量调整超时时间
-5. **文件大小限制**：单个上传文件大小不超过 100 MB

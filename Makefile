@@ -1,5 +1,5 @@
 
-.PHONY: up up-lite down logs lint format seed reset
+.PHONY: up up-lite down logs lint format
 
 PYTEST_ARGS ?=
 
@@ -13,18 +13,6 @@ up:
 down:
 	docker compose down
 
-reset:
-	@if [ ! -f .env ]; then \
-		echo "Error: .env file not found. Please create it from .env.template"; \
-		exit 1; \
-	fi
-	docker compose down
-	rm -rf docker/volumes
-	docker compose up -d
-	@echo "Waiting for api to be ready..."
-	@until docker compose exec -T api true >/dev/null 2>&1; do sleep 2; done
-	$(MAKE) seed
-
 up-lite:
 	@if [ ! -f .env ]; then \
 		echo "Error: .env file not found. Please create it from .env.template"; \
@@ -37,9 +25,6 @@ logs:
 	@echo "\n\nBranch: $$(git branch --show-current)"
 	@echo "Commit ID: $$(git rev-parse HEAD)"
 	@echo "System: $$(uname -a)"
-
-seed:
-	docker compose exec api uv run python scripts/seed_initial_users.py
 
 ######################
 # LINTING AND FORMATTING

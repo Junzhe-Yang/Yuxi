@@ -40,8 +40,7 @@ cache
 .pytest_cache
 .playwright
 .playwright-cli
-.playwright-mcp
-.opencode
+.playwright-mcp/
 
 
 ### IDE
@@ -81,3 +80,13 @@ docs/vibe
 /models
 
 .taskr/
+
+.agents/
+.ruff_cache/
+.uv-cache/
+
+# Local experiment artifacts and exported bundles
+/outputs/
+/paper/
+/deliverables/*.zip
+/scripts/yuxi_batch_rag/reference_file/*_rag_records.json

@@ -21,46 +21,13 @@
           <User class="icon" />
           <span class="user-greeting">{{ greeting }}</span>
         </div>
-        <div class="header-actions">
-          <a-tooltip title="系统设置">
-            <button
-              type="button"
-              class="header-action-button"
-              aria-label="系统设置"
-              @click="openSettings"
-            >
-              <Settings class="icon" />
-            </button>
-          </a-tooltip>
-          <a-tooltip :title="themeStore.isDark ? '切换到浅色模式' : '切换到深色模式'">
-            <button
-              type="button"
-              class="header-action-button"
-              aria-label="切换主题"
-              @click="toggleTheme"
-            >
-              <Sun v-if="themeStore.isDark" class="icon" />
-              <Moon v-else class="icon" />
-            </button>
-          </a-tooltip>
-          <a-tooltip title="任务中心">
-            <button
-              type="button"
-              class="header-action-button task-center-button"
-              :class="{ active: taskerStore.isDrawerOpen }"
-              aria-label="任务中心"
-              @click="openTaskCenter"
-            >
+        <div class="task-center-entry" @click="openTaskCenter">
+          <a-badge :count="activeTaskCount" :overflow-count="99" class="task-center-badge">
+            <span class="task-center-button">
               <ClipboardList class="icon" />
               <span class="task-center-label">任务中心</span>
-              <a-badge
-                :count="activeTaskCount"
-                :overflow-count="99"
-                class="task-center-badge"
-                size="small"
-              />
-            </button>
-          </a-tooltip>
+            </span>
+          </a-badge>
         </div>
       </div>
     </div>
@@ -68,12 +35,11 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useInfoStore } from '@/stores/info'
 import { useUserStore } from '@/stores/user'
-import { Clock, User, ClipboardList, Settings, Sun, Moon } from 'lucide-vue-next'
+import { Clock, User, ClipboardList } from 'lucide-vue-next'
 import { useTaskerStore } from '@/stores/tasker'
-import { useThemeStore } from '@/stores/theme'
 import { storeToRefs } from 'pinia'
 import dayjs from '@/utils/time'
 
@@ -81,9 +47,7 @@ import dayjs from '@/utils/time'
 const infoStore = useInfoStore()
 const userStore = useUserStore()
 const taskerStore = useTaskerStore()
-const themeStore = useThemeStore()
 const { activeCount: activeCountRef } = storeToRefs(taskerStore)
-const { openSettingsModal } = inject('settingsModal', {})
 
 // 响应式数据
 const currentTime = ref('')
@@ -120,14 +84,6 @@ const activeTaskCount = computed(() => activeCountRef.value || 0)
 
 const openTaskCenter = () => {
   taskerStore.openDrawer()
-}
-
-const openSettings = () => {
-  openSettingsModal?.(userStore.isAdmin ? 'base' : 'account')
-}
-
-const toggleTheme = () => {
-  themeStore.toggleTheme()
 }
 
 // 更新时间
@@ -203,62 +159,57 @@ onUnmounted(() => {
 .status-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   font-size: 13px;
 }
 
-.header-actions {
+.task-center-entry {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.header-action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 32px;
-  min-width: 32px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background-color: transparent;
-  color: var(--gray-600, #4b5563);
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
   user-select: none;
+}
+
+.task-center-badge {
+  display: flex;
+  align-items: center;
+}
+
+.task-center-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background-color: transparent;
+  color: var(--main-600, #2563eb);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid rgba(37, 99, 235, 0.3);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
     color 0.2s ease;
-
-  &:hover,
-  &.active {
-    border-color: var(--gray-150, #e5e7eb);
-    background: var(--gray-0, #fff);
-    color: var(--gray-900, #111827);
-  }
-
-  .icon {
-    width: 16px;
-    height: 16px;
-    color: inherit;
-  }
 }
 
-.task-center-button {
-  padding-right: 10px;
+.task-center-button .icon {
+  width: 15px;
+  height: 15px;
+  color: inherit;
 }
 
 .task-center-label {
-  line-height: 1;
+  letter-spacing: 0.2px;
+}
+
+.task-center-entry:hover .task-center-button {
+  background-color: rgba(37, 99, 235, 0.08);
+  color: var(--main-700, #1d4ed8);
+  border-color: rgba(37, 99, 235, 0.5);
 }
 
 .task-center-badge :deep(.ant-badge-count) {
   background-color: var(--main-color, #1d4ed8);
-  box-shadow: 0 0 0 1px var(--gray-25, #f9fafb);
 }
 
 .time-info,
@@ -304,15 +255,7 @@ onUnmounted(() => {
   }
 
   .status-right {
-    gap: 8px;
-  }
-
-  .header-actions {
-    gap: 2px;
-  }
-
-  .task-center-label {
-    display: none;
+    gap: 12px;
   }
 
   .time-info,

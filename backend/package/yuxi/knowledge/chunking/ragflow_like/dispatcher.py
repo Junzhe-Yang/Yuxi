@@ -6,25 +6,13 @@ from yuxi.knowledge.chunking.ragflow_like.parsers import book, general, laws, qa
 from yuxi.knowledge.chunking.ragflow_like.presets import map_to_internal_parser_id, normalize_chunk_preset_id
 
 
-def _build_chunk_records(
-    text_chunks: list[str], file_id: str, filename: str, source_text: str | None = None
-) -> list[dict[str, Any]]:
+def _build_chunk_records(text_chunks: list[str], file_id: str, filename: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    search_from = 0
 
     for idx, chunk_content in enumerate(text_chunks):
         text = (chunk_content or "").strip()
         if not text:
             continue
-
-        start_char_pos = None
-        end_char_pos = None
-        if source_text:
-            found_at = source_text.find(text, search_from)
-            if found_at >= 0:
-                start_char_pos = found_at
-                end_char_pos = found_at + len(text)
-                search_from = end_char_pos
 
         records.append(
             {
@@ -35,11 +23,6 @@ def _build_chunk_records(
                 "chunk_index": idx,
                 "source": filename,
                 "chunk_id": f"{file_id}_chunk_{idx}",
-                "start_char_pos": start_char_pos,
-                "end_char_pos": end_char_pos,
-                "start_token_pos": None,
-                "end_token_pos": None,
-                "extraction_result": None,
             }
         )
 
@@ -75,7 +58,7 @@ def chunk_markdown(
     parser_config = params.get("chunk_parser_config") if isinstance(params.get("chunk_parser_config"), dict) else {}
 
     text_chunks = _dispatch_markdown_parser(preset_id, filename, markdown_content, parser_config)
-    return _build_chunk_records(text_chunks, file_id, filename, markdown_content)
+    return _build_chunk_records(text_chunks, file_id, filename)
 
 
 def chunk_file(

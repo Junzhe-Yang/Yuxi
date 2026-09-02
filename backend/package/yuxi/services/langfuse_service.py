@@ -43,6 +43,9 @@ def get_langfuse_client() -> Langfuse | None:
     if not is_langfuse_enabled():
         return None
 
+    if Langfuse is None:
+        return None
+
     kwargs: dict[str, Any] = {
         "public_key": os.getenv("LANGFUSE_PUBLIC_KEY"),
         "secret_key": os.getenv("LANGFUSE_SECRET_KEY"),
@@ -65,7 +68,7 @@ def build_trace_metadata(
     agent_id: str,
     request_id: str,
     operation: str,
-    backend_id: str | None = None,
+    agent_config_id: int | None = None,
     message_type: str | None = None,
     username: str | None = None,
     login_user_id: str | None = None,
@@ -82,8 +85,8 @@ def build_trace_metadata(
         "feature": "chat",
     }
 
-    if backend_id:
-        metadata["backend_id"] = backend_id
+    if agent_config_id is not None:
+        metadata["agent_config_id"] = str(agent_config_id)
     if message_type:
         metadata["message_type"] = message_type
     if username:
@@ -110,7 +113,7 @@ def build_run_context(
     agent_id: str,
     request_id: str,
     operation: str,
-    backend_id: str | None = None,
+    agent_config_id: int | None = None,
     message_type: str | None = None,
     username: str | None = None,
     login_user_id: str | None = None,
@@ -122,7 +125,7 @@ def build_run_context(
         agent_id=agent_id,
         request_id=request_id,
         operation=operation,
-        backend_id=backend_id,
+        agent_config_id=agent_config_id,
         message_type=message_type,
         username=username,
         login_user_id=login_user_id,

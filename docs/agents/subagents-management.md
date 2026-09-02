@@ -1,117 +1,175 @@
-# 子智能体
+# SubAgents 管理
 
-Yuxi 的子智能体是 Agent-backed 形态：它仍然是 `agents` 表中的一级 Agent，只是额外带有 `is_subagent=true` 标记，并使用专用后端 `SubAgentBackend`。子智能体不再有独立的创建入口、独立表或独立管理接口。
+SubAgent 是 Deep Agent 的可调用子智能体配置。你可以在管理界面维护多个子智能体，Deep Agent 在运行时会根据任务需要调用它们协作完成研究、评审等步骤。
+
+这篇文档同时面向两类读者：
+
+- 使用者：了解如何在 UI 中创建和维护 SubAgent。
+- 开发者：了解后端数据结构、加载流程、调用链路和注意事项。
 
 ## 用户视角
 
-### 子智能体能解决什么问题
+### SubAgent 能解决什么问题
 
-当任务复杂、需要分工处理时，主 Agent 可以通过 `task` 工具把一个子任务交给子智能体。例如：
+当任务复杂、需要并行信息收集或分工处理时，主智能体可以调用一个或多个 SubAgent 执行子任务。例如：
 
-- 通用型子任务：交给内置 `general-purpose` 子智能体，使用默认运行配置处理分析、整理、写作或文件处理。
 - 研究型子任务：聚焦检索和资料整理。
 - 评审型子任务：对草稿进行结构和质量审查。
-- 领域型子任务：使用指定模型、工具、知识库或 Skills 处理特定领域问题。
+- 领域型子任务：使用指定工具和指定模型处理特定领域问题。
 
-### 在哪里创建和编辑
+### 在哪里管理
 
-子智能体与普通 Agent 使用同一个管理入口：进入模型配置中的“智能体”管理页，点击新增智能体，并在后端类型中选择 `SubAgentBackend`。
+在扩展管理页面中，切换到 Subagents 管理标签页即可进行增删改查。
 
-创建和编辑流程与普通 Agent 保持一致：
+主要字段说明：
 
-- 展示信息、共享权限、系统提示词和运行配置都保存在同一份 Agent 配置中。
-- 模型、工具、知识库、MCP 和 Skills 仍通过 Agent runtime config 表单配置。
-- 子智能体不会出现在聊天页的 Agent 快速切换列表中。
-- 子智能体不能再配置或调用其他子智能体。
+| 字段 | 说明 |
+|------|------|
+| name | 唯一标识，创建后不可修改 |
+| description | 子智能体用途说明 |
+| system_prompt | 子智能体行为约束 |
+| tools | 可用工具名称列表（从工具系统选择/输入） |
+| model | 可选，子智能体模型覆盖 |
+| enabled | 是否已添加到运行时 |
+| is_builtin | 是否内置（内置项不可编辑、不可删除） |
 
-### 如何让主 Agent 调用子智能体
+### 配置建议
 
-主 Agent 会通过 runtime config 的“子智能体”字段确定 `task` 工具可调用的子智能体范围。
+- name 建议语义化，例如 market-research-agent、fact-check-agent。
+- system_prompt 尽量聚焦单一职责，避免一个 SubAgent 同时承担多个目标。
+- tools 只保留该角色需要的最小集合。
+- model 仅在该角色对模型能力有明确要求时设置；否则保持空值，使用默认策略。
 
-`subagents` 字段表示当前主 Agent 的允许列表：
+### 使用方式与启用条件
 
-- 未选择或保存空列表时，默认启用当前用户可见的全部子智能体，包括内置 `general-purpose`。
-- 显式选择后，只允许调用所选子智能体。
-- 只会调用当前用户可访问且 `is_subagent=true` 的 Agent。
-- 每个子智能体使用自己的 `config_json.context`，包括模型、工具、知识库、MCP、Skills 和系统提示词。
+SubAgent 配置保存在数据库中，但仅有配置并不会自动参与运行。要让子智能体真正可被调用，必须在 Agent 的 graph 中接入 `SubAgentMiddleware`。
 
-内置 `general-purpose` 的 `config_json.context` 为空，运行时会按 `SubAgentContext` 和 `BaseContext` 默认值解析模型、工具、知识库、MCP 与 Skills。
+可参考 Deep Agent 的实现：
+
+```python
+subagents_middleware = SubAgentMiddleware(
+	default_model=sub_model,
+	default_tools=search_tools,
+	subagents=user_subagents,
+	default_middleware=[...],
+	general_purpose_agent=True,
+)
+
+graph = create_agent(
+	model=model,
+	middleware=[
+		...,
+		subagents_middleware,
+		...,
+	],
+)
+```
+
+启用规则可以总结为：
+
+- 未接入 `SubAgentMiddleware`：SubAgent 功能不生效（即使数据库里已配置）。
+- 已接入 `SubAgentMiddleware`：只有 `enabled=true` 且被 Agent 配置选中的 SubAgent 才可调用。
+- 可调用范围由 Agent 配置中的 `subagents` 列表与数据库启用状态共同决定。
 
 ## 开发者视角
 
 ### 数据模型
 
-子智能体复用 `agents` 表，核心字段包括：
+SubAgent 存储在业务库表 subagents 中，核心字段定义在：
 
-| 字段 | 说明 |
-|------|------|
-| `backend_id` | 子智能体固定使用 `SubAgentBackend` |
-| `is_subagent` | 子智能体标记，`SubAgentBackend` 必须对应 `true` |
-| `config_json.context` | 子智能体自己的运行配置 |
-| `share_config` | 可见性与管理权限，沿用 Agent 共享模型 |
+- backend/package/yuxi/storage/postgres/models_business.py
 
-后端会校验 `backend_id` 与 `is_subagent` 一致：普通 Agent 不能伪装成子智能体，`SubAgentBackend` 也不能以普通 Agent 形态保存。子智能体不能被设置为默认 Agent。
+模型转换方法：
 
-### API 与列表语义
+- to_dict: 提供管理接口输出。
+- to_subagent_spec: 提供 SubAgentMiddleware 所需结构。
 
-子智能体沿用 `/api/agent` CRUD：
+### 后端分层
 
-- `GET /api/agent` 默认只返回聊天可用的普通 Agent。
-- `GET /api/agent?include_subagents=true` 返回管理页需要的完整 Agent 列表。
-- 创建或更新 `SubAgentBackend` 时，payload 会携带或推导 `is_subagent=true`。
-- 详情、更新和删除仍走同一套 Agent 管理接口，并复用现有权限过滤。
+SubAgent 采用 Router -> Service -> Repository 的标准分层：
 
-旧的独立 SubAgent 管理链路已经移除，不再维护单独的启停状态、内置初始化或 spec 缓存。
+- 路由：backend/server/routers/subagent_router.py
+- 服务：backend/package/yuxi/services/subagent_service.py
+- 仓储：backend/package/yuxi/repositories/subagent_repository.py
 
-### 运行时调用链
+职责划分：
 
-主 Agent 构图时，会先把 `context.subagents` 归一化为当前用户可见的允许列表；允许列表非空时挂载 Yuxi 的 task middleware。middleware 会把允许的子智能体列表注入模型提示，并暴露一个 `task` 工具。
+- Router: 鉴权、请求参数校验、HTTP 错误语义。
+- Service: 业务规则、缓存管理、工具解析、内置项初始化。
+- Repository: 数据库读写与更新语义。
 
-工具参数为：
+### 运行时加载与调用链
 
-```python
-class TaskToolSchema(BaseModel):
-    description: str
-    subagent_type: str
-    thread_id: str | None = None
-```
+Deep Agent 构图时会动态加载 SubAgent：
 
-`thread_id` 是可选的子智能体线程 ID。新任务不需要填写；如果要继续之前同一个子智能体任务，应使用上一次 `task` 工具结果中的 `子智能体线程 ID`。
+1. 从数据库读取 SubAgent spec。
+2. 将 tools 字符串列表解析为真实工具实例。
+3. 传入 SubAgentMiddleware，参与执行。
 
-执行时的关键流程：
+关键代码：
 
-1. 从父 Agent 的 `context.subagents` 读取允许的子智能体 slug；未显式配置或空列表会展开为当前用户可见的全部子智能体。
-2. 使用 `AgentRepository` 加载当前用户可见且 `is_subagent=true` 的 Agent。
-3. 新任务会为本次调用生成 child checkpoint thread id，例如 `<parent_thread_id>_sub_<slug>_<uuid8>`；续跑任务会校验并复用传入的 `thread_id`。
-4. 使用子智能体自己的 `SubAgentContext` 和 `config_json.context` 构建真实 Agent graph。
-5. 调用结束后，把子智能体线程 ID 和最终 assistant 文本作为 `task` 工具结果返回给主 Agent。
+- backend/package/yuxi/agents/buildin/deep_agent/graph.py
+- backend/package/yuxi/services/subagent_service.py
 
-`SubAgentBackend` 复用普通 Agent 的运行时资源归一化流程，但不会挂载 task middleware；它的 `subagents` 字段隐藏且默认为空，因此不会形成嵌套子智能体调用。
+在当前实现中，子智能体默认模型由 DeepContext.subagents_model 提供；单个 SubAgent 若配置了 model，会在子智能体级别覆盖默认模型。
 
-### 文件系统与沙盒作用域
+### 内置 SubAgent 初始化
 
-子智能体与主 Agent 共享文件系统时使用拆分作用域：
+系统启动时会自动确保内置 SubAgent 存在，并用代码中的最新定义覆盖数据库中的展示字段：
 
-| 路径/作用域 | 普通 Agent | 子智能体 |
+- research-agent
+- critique-agent
+
+初始化逻辑：
+
+- backend/package/yuxi/services/subagent_service.py 中的 _DEFAULT_SUBAGENTS 和 init_builtin_subagents
+- backend/server/utils/lifespan.py 启动阶段调用
+
+内置项保护规则：
+
+- 内置 SubAgent 不可编辑。
+- 内置 SubAgent 不可删除。
+- 内置 SubAgent 可以移除/重新添加（通过 `enabled` 控制）。
+
+### API 概览
+
+接口前缀：/api/system/subagents
+
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| LangGraph checkpoint | 当前 `thread_id` | child `thread_id` |
-| `/home/gem/user-data/workspace` | 当前 `uid` 的共享工作区 | 同一 `uid` 的共享工作区 |
-| `/home/gem/user-data/uploads` | 当前会话文件作用域 | 父会话 `file_thread_id` |
-| `/home/gem/user-data/outputs` | 当前会话文件作用域 | 父会话 `file_thread_id` |
-| `/home/gem/skills` | 当前 Agent 的 Skills 作用域 | 子智能体自己的 `skills_thread_id` |
+| GET | /api/system/subagents | 列表 |
+| GET | /api/system/subagents/{name} | 详情 |
+| POST | /api/system/subagents | 创建 |
+| PUT | /api/system/subagents/{name} | 更新 |
+| PUT | /api/system/subagents/{name}/status | 更新添加状态 |
+| DELETE | /api/system/subagents/{name} | 删除 |
 
-这保证子智能体可以读取父会话上传、产物也会回到父会话 artifacts 中，同时子智能体的 Skills 不会污染主 Agent。
+所有接口均要求管理员权限。
+
+### 一致性与缓存
+
+为了降低频繁查询数据库的开销，服务层维护了 subagent spec 缓存，并在创建/更新/删除后主动失效。
+
+建议：
+
+- 不要绕过 Service 直接写库，否则缓存不会自动失效。
+- 如果新增导入/批量同步逻辑，务必在完成后调用缓存失效函数。
 
 ## 常见问题
 
-### 为什么创建了子智能体，主 Agent 仍不会调用？
+### Q1: 为什么配置了 tools，但运行时没生效？
 
-主 Agent 只会调用当前用户可访问的子智能体。如果主 Agent 显式保存了子智能体允许列表，新建子智能体需要被加入该列表；未显式配置或空列表会使用当前用户可见的全部子智能体。
+A: tools 字段保存的是工具名称。只有在运行时可用工具集合中存在同名工具，才会被解析并注入。请检查：
 
-### 为什么聊天 Agent 列表里看不到子智能体？
+- 工具名称是否拼写正确。
+- 该工具是否已在当前环境启用。
+- MCP 工具服务是否已成功加载。
+- Agent graph 是否已接入 `SubAgentMiddleware`。
 
-这是预期行为。子智能体是被主 Agent 调用的后端配置，不是直接进入聊天的 Agent；管理页会使用包含子智能体的列表。
+### Q2: 删除后为什么主智能体偶尔还调用旧 SubAgent？
 
-### 子智能体能否继承主 Agent 的模型或工具？
+A: 通常与缓存和运行会话生命周期有关。确认删除接口成功返回后，新的图构建会使用最新配置。若是长会话，可重新开始一次运行。
 
-子智能体运行时使用自己的 Agent 配置。确实需要一致时，应在子智能体配置中显式选择相同模型、工具或 Skills；运行时只继承必要的父会话作用域，例如 uploads/outputs。
+### Q3: 内置 SubAgent 为什么不能直接改？
+
+A: 内置项用于保证系统具备最小可用能力。若你需要完全自定义，建议新建自定义 SubAgent 并在提示词中引导主智能体优先使用。

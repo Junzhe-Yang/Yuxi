@@ -25,35 +25,19 @@
 
 ## 供应商管理
 
-### 内置供应商模板
+### 内置供应商
 
-系统启动时会同步一组内置 provider 模板。模板只提供 Provider ID、Base URL、凭证环境变量和远端模型发现地址；实际是否可用仍取决于你是否配置凭证、启用供应商并添加模型。
+部分供应商默认启用，首次使用需配置 API 凭证：
 
-| 供应商 | Provider ID | 支持类型 | 凭证环境变量 |
-|--------|-------------|----------|--------------|
-| OpenAI | `openai` | chat | `OPENAI_API_KEY` |
-| DeepSeek | `deepseek` | chat | `DEEPSEEK_API_KEY` |
-| DashScope | `alibaba` | chat, embedding, rerank | `DASHSCOPE_API_KEY` |
-| Aliyun Coding Plan | `alibaba-coding-plan-cn` | chat | `DASHSCOPE_API_KEY` |
-| Aliyun Coding Plan International | `alibaba-coding-plan` | chat | `DASHSCOPE_API_KEY` |
-| Zhipu BigModel | `zhipuai` | chat | `ZHIPUAI_API_KEY` |
-| Zhipu BigModel Coding Plan | `zhipuai-coding-plan` | chat | `ZHIPUAI_API_KEY` |
-| Z.AI | `zai` | chat | `ZAI_API_KEY` |
-| Z.AI Coding Plan | `zai-coding-plan` | chat | `ZAI_API_KEY` |
-| XiaomiMiMo Token Plan | `xiaomi-token-plan-cn` | chat | `XIAOMI_MIMO_TOKEN_PLAN_API_KEY` |
-| XiaomiMiMo | `xiaomi` | chat | `XIAOMI_MIMO_API_KEY` |
-| Kimi Code | `kimi-for-coding` | chat | `KIMI_CODE_API_KEY` |
-| Moonshot | `moonshotai-cn` | chat | `MOONSHOT_API_KEY` |
-| Moonshot International | `moonshotai` | chat | `MOONSHOT_API_KEY` |
-| MiniMax | `minimax-cn` | chat | `MINIMAX_API_KEY` |
-| MiniMax International | `minimax` | chat | `MINIMAX_API_KEY` |
-| OpenRouter | `openrouter` | chat, embedding | `OPENROUTER_API_KEY` |
-| ModelScope | `modelscope` | chat | `MODELSCOPE_ACCESS_TOKEN` |
-| OpenCode | `opencode` | chat | 无默认环境变量 |
-| SiliconFlow | `siliconflow-cn` | chat, embedding, rerank | `SILICONFLOW_API_KEY` |
-| SiliconFlow International | `siliconflow` | chat, embedding, rerank | `SILICONFLOW_GLOBAL_API_KEY` |
-
-其中 `alibaba`、`siliconflow-cn` 预置了部分 embedding / rerank 模型；其他供应商通常需要进入详情页通过「获取远程模型」或「手动添加」补充模型。
+| 供应商 | Provider ID | 支持类型 | 备注 |
+|--------|-------------|----------|------|
+| SiliconFlow | `siliconflow-cn` | chat, embedding, rerank | 默认启用 |
+| OpenAI | `openai` | chat | |
+| DeepSeek | `deepseek` | chat | |
+| 阿里云百炼 | `alibaba` | chat | |
+| 智谱清言 | `zhipuai` | chat | |
+| MiniMax | `minimax-cn` | chat | |
+| OpenRouter | `openrouter` | chat, embedding | |
 
 ### 操作流程
 
@@ -82,15 +66,9 @@
 
 在供应商详情的已启用模型列表中移除不需要的模型。
 
-## 模型标识格式
+## 旧版配置兼容性
 
-运行时模型统一使用 `provider_id:model_id` 格式，例如 `siliconflow-cn:Pro/BAAI/bge-m3`。`model_id` 可以包含 `/`，系统只按第一个 `:` 区分供应商与模型 ID。
-
-旧版 `provider/model`、旧版知识库 JSON 模型字段、配置文件中的 `model_names` / `embed_model_names` / `reranker_names` 不再作为运行时模型来源。历史知识库或 Agent 配置如果仍保存旧格式，需要在界面中重新选择新版模型后保存。
-
-## Ollama 支持
-
-当前版本不再内置 Ollama provider type，也不再提供 Ollama embedding 运行时适配。已有 Ollama embedding 知识库需要管理员选择新的 embedding 模型并重建索引，避免不同向量空间混用。
+本次更新前通过环境变量配置的模型（如 `SILICONFLOW_API_KEY`）依然有效，系统自动适配。旧配置不受影响，新增或修改模型时请使用新版界面。
 
 ## 常见问题
 

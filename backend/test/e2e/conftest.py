@@ -62,9 +62,9 @@ async def e2e_agent_context(e2e_client: httpx.AsyncClient, e2e_headers: dict[str
         pytest.fail(
             f"Failed to fetch current user for E2E tests (status={me_response.status_code}): {me_response.text}"
         )
-    uid = me_response.json().get("uid")
-    if not uid:
-        pytest.fail("Current user payload missing uid field for E2E tests.")
+    user_id = me_response.json().get("id")
+    if user_id is None:
+        pytest.fail("Current user payload missing id field for E2E tests.")
 
     default_response = await e2e_client.get("/api/chat/default_agent", headers=e2e_headers)
     default_agent_id = None
@@ -96,4 +96,4 @@ async def e2e_agent_context(e2e_client: httpx.AsyncClient, e2e_headers: dict[str
     if not config_id:
         pytest.fail(f"Agent config payload missing id field for agent {agent_id}.")
 
-    return {"agent_id": agent_id, "agent_config_id": int(config_id), "uid": str(uid)}
+    return {"agent_id": agent_id, "agent_config_id": int(config_id), "user_id": int(user_id)}

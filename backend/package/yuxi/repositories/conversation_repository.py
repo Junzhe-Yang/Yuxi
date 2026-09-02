@@ -7,7 +7,6 @@ import uuid as uuid_lib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import Conversation, ConversationStats, Message, ToolCall
 from yuxi.utils import logger
@@ -35,7 +34,7 @@ class ConversationRepository:
 
     async def create_conversation(
         self,
-        uid: str,
+        user_id: str,
         agent_id: str,
         title: str | None = None,
         thread_id: str | None = None,
@@ -51,7 +50,7 @@ class ConversationRepository:
 
         conversation = Conversation(
             thread_id=thread_id,
-            uid=str(uid),
+            user_id=str(user_id),
             agent_id=agent_id,
             title=normalized_title or "New Conversation",
             status="active",
@@ -66,7 +65,7 @@ class ConversationRepository:
         await self.db.commit()
         await self.db.refresh(conversation)
 
-        logger.info(f"Created conversation: {conversation.thread_id} for user {uid}")
+        logger.info(f"Created conversation: {conversation.thread_id} for user {user_id}")
         return conversation
 
     async def get_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
@@ -79,16 +78,29 @@ class ConversationRepository:
 
     def _ensure_metadata(self, conversation: Conversation) -> dict:
         metadata = dict(conversation.extra_metadata or {})
-        attachments = metadata.get("attachments", [])
-        metadata["attachments"] = [dict(item) for item in attachments if isinstance(item, dict)]
+        metadata["attachments"] = list(metadata.get("attachments", []))
         return metadata
+
+    def _normalize_agent_config_id(self, agent_config_id: int | None) -> int | None:
+        if agent_config_id is None:
+            return None
+        return int(agent_config_id)
 
     async def _save_metadata(self, conversation: Conversation, metadata: dict) -> None:
         conversation.extra_metadata = metadata
-        flag_modified(conversation, "extra_metadata")
         conversation.updated_at = utc_now_naive()
         await self.db.commit()
         await self.db.refresh(conversation)
+
+    async def bind_agent_config(self, thread_id: str, agent_config_id: int) -> Conversation | None:
+        conversation = await self.get_conversation_by_thread_id(thread_id)
+        if not conversation:
+            return None
+
+        metadata = self._ensure_metadata(conversation)
+        metadata["agent_config_id"] = self._normalize_agent_config_id(agent_config_id)
+        await self._save_metadata(conversation, metadata)
+        return conversation
 
     async def add_message(
         self,
@@ -98,9 +110,6 @@ class ConversationRepository:
         message_type: str = "text",
         extra_metadata: dict | None = None,
         image_content: str | None = None,
-        run_id: str | None = None,
-        request_id: str | None = None,
-        delivery_status: str = "complete",
     ) -> Message:
         message = Message(
             conversation_id=conversation_id,
@@ -109,9 +118,6 @@ class ConversationRepository:
             message_type=message_type,
             extra_metadata=extra_metadata or {},
             image_content=image_content,
-            run_id=run_id,
-            request_id=request_id,
-            delivery_status=delivery_status,
         )
 
         self.db.add(message)
@@ -135,9 +141,6 @@ class ConversationRepository:
         message_type: str = "text",
         extra_metadata: dict | None = None,
         image_content: str | None = None,
-        run_id: str | None = None,
-        request_id: str | None = None,
-        delivery_status: str = "complete",
     ) -> Message | None:
         conversation = await self.get_conversation_by_thread_id(thread_id)
         if not conversation:
@@ -151,9 +154,6 @@ class ConversationRepository:
             message_type=message_type,
             extra_metadata=extra_metadata,
             image_content=image_content,
-            run_id=run_id,
-            request_id=request_id,
-            delivery_status=delivery_status,
         )
 
     async def add_tool_call(
@@ -221,7 +221,7 @@ class ConversationRepository:
 
     async def list_conversations(
         self,
-        uid: str | None = None,
+        user_id: str | None = None,
         agent_id: str | None = None,
         status: str = "active",
         limit: int | None = None,
@@ -234,8 +234,8 @@ class ConversationRepository:
         """
 
         base_conditions = [Conversation.status == status]
-        if uid:
-            base_conditions.append(Conversation.uid == str(uid))
+        if user_id:
+            base_conditions.append(Conversation.user_id == str(user_id))
         if agent_id:
             base_conditions.append(Conversation.agent_id == agent_id)
 
@@ -423,20 +423,6 @@ class ConversationRepository:
         await self._save_metadata(conversation, metadata)
         return attachment_info
 
-    async def add_attachments(self, conversation_id: int, attachment_infos: list[dict]) -> list[dict] | None:
-        conversation = await self._get_conversation_by_id(conversation_id)
-        if not conversation:
-            return None
-
-        metadata = self._ensure_metadata(conversation)
-        attachments = metadata.get("attachments", [])
-        incoming_ids = {item.get("file_id") for item in attachment_infos}
-        attachments = [item for item in attachments if item.get("file_id") not in incoming_ids]
-        attachments.extend(attachment_infos)
-        metadata["attachments"] = attachments
-        await self._save_metadata(conversation, metadata)
-        return attachment_infos
-
     async def update_attachment_status(
         self, conversation_id: int, file_id: str, status: str, update_fields: dict | None = None
     ) -> dict | None:
@@ -459,38 +445,6 @@ class ConversationRepository:
             metadata["attachments"] = attachments
             await self._save_metadata(conversation, metadata)
         return target
-
-    async def bind_attachments_to_request(
-        self, conversation_id: int, request_id: str, file_ids: list[str]
-    ) -> list[dict]:
-        conversation = await self._get_conversation_by_id(conversation_id)
-        if not conversation or not request_id or not file_ids:
-            return []
-
-        file_id_set = {str(file_id).strip() for file_id in file_ids if str(file_id).strip()}
-        if not file_id_set:
-            return []
-
-        metadata = self._ensure_metadata(conversation)
-        attachments = metadata.get("attachments", [])
-        changed = False
-
-        for item in attachments:
-            if item.get("file_id") not in file_id_set:
-                continue
-            if item.get("request_id"):
-                continue
-            item["request_id"] = request_id
-            changed = True
-
-        if changed:
-            metadata["attachments"] = attachments
-            await self._save_metadata(conversation, metadata)
-        return [dict(item) for item in attachments if item.get("request_id") == request_id]
-
-    async def get_attachments_by_request_id(self, conversation_id: int, request_id: str) -> list[dict]:
-        attachments = await self.get_attachments(conversation_id)
-        return [item for item in attachments if item.get("request_id") == request_id]
 
     async def remove_attachment(self, conversation_id: int, file_id: str) -> bool:
         conversation = await self._get_conversation_by_id(conversation_id)

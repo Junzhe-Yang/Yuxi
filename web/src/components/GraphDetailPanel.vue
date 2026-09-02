@@ -1,203 +1,140 @@
 <template>
-  <transition name="slide-fade-left">
-    <div class="detail-panel" v-if="visible" @click="handleLinkClick">
-      <div class="panel-header">
-        <span class="panel-title">{{ title }}</span>
-        <X :size="14" class="close-icon" @click="$emit('close')" />
-      </div>
-      <div class="panel-body">
-        <template v-if="item">
-          <template v-if="type === 'node'">
-            <div :class="rowClass(item.data?.label)">
-              <span class="detail-label">名称</span>
-              <span class="detail-value">
-                <DetailValue
-                  :value="item.data?.label"
-                  field-key="__label__"
-                  :expanded-keys="expandedKeys"
-                />
-              </span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">ID</span>
-              <span class="detail-value detail-id">{{ item.id }}</span>
-            </div>
-            <template v-if="item.data?.original?.labels">
-              <div class="detail-row">
-                <span class="detail-label">标签</span>
-                <span class="detail-value">
-                  <a-tag v-for="tag in item.data.original.labels" :key="tag" size="small">{{
-                    tag
-                  }}</a-tag>
-                </span>
-              </div>
-            </template>
-            <template v-if="item.data?.original?.properties">
-              <div
-                v-for="(value, key) in item.data.original.properties"
-                :key="key"
-                :class="rowClass(value)"
-              >
-                <span class="detail-label">{{ key }}</span>
-                <span class="detail-value">
-                  <DetailValue :value="value" :field-key="key" :expanded-keys="expandedKeys" />
-                </span>
-              </div>
-            </template>
-          </template>
-          <template v-else-if="type === 'edge'">
-            <div :class="rowClass(item.data?.label)">
-              <span class="detail-label">类型</span>
-              <span class="detail-value">
-                <DetailValue
-                  :value="item.data?.label"
-                  field-key="__type__"
-                  :expanded-keys="expandedKeys"
-                />
-              </span>
-            </div>
-            <template v-if="item.data?.original?.properties">
-              <div
-                v-for="(value, key) in filteredEdgeProperties"
-                :key="key"
-                :class="rowClass(value)"
-              >
-                <span class="detail-label">{{ key }}</span>
-                <span class="detail-value">
-                  <DetailValue :value="value" :field-key="key" :expanded-keys="expandedKeys" />
-                </span>
-              </div>
-            </template>
-          </template>
+  <transition name="slide-fade">
+    <div class="detail-card" v-if="visible">
+      <a-card :bordered="false" size="small" class="info-card">
+        <template #title>
+          <div class="card-title">
+            <span>{{ title }}</span>
+            <CloseOutlined @click="$emit('close')" class="close-icon" />
+          </div>
         </template>
-      </div>
+
+        <div class="card-content">
+          <template v-if="item">
+            <a-descriptions :column="1" size="small" :bordered="true">
+              <template v-if="type === 'node'">
+                <a-descriptions-item label="名称">{{ item.data?.label }}</a-descriptions-item>
+                <a-descriptions-item label="ID">{{ item.id }}</a-descriptions-item>
+
+                <!-- 原始属性 -->
+                <template v-if="item.data?.original?.properties">
+                  <a-descriptions-item
+                    v-for="(value, key) in item.data.original.properties"
+                    :key="key"
+                    :label="key"
+                  >
+                    {{ value }}
+                  </a-descriptions-item>
+                </template>
+
+                <!-- 标签 -->
+                <a-descriptions-item label="标签" v-if="item.data?.original?.labels">
+                  <div class="tags-container">
+                    <a-tag v-for="tag in item.data.original.labels" :key="tag" color="blue">{{
+                      tag
+                    }}</a-tag>
+                  </div>
+                </a-descriptions-item>
+              </template>
+
+              <template v-else-if="type === 'edge'">
+                <a-descriptions-item label="类型">{{ item.data?.label }}</a-descriptions-item>
+
+                <!-- 原始属性 -->
+                <template v-if="item.data?.original?.properties">
+                  <a-descriptions-item
+                    v-for="(value, key) in filteredEdgeProperties"
+                    :key="key"
+                    :label="key"
+                  >
+                    {{ value }}
+                  </a-descriptions-item>
+                </template>
+              </template>
+            </a-descriptions>
+          </template>
+        </div>
+      </a-card>
     </div>
   </transition>
 </template>
 
 <script setup>
-import { computed, reactive, watch, defineComponent, h } from 'vue'
-import { X } from 'lucide-vue-next'
-
-const STACK_THRESHOLD = 50
-const TRUNCATE_LIMIT = 100
-
-const DetailValue = defineComponent({
-  props: {
-    value: [String, Number, Boolean, Object, Array],
-    fieldKey: { type: String, required: true },
-    expandedKeys: { type: Set, required: true }
-  },
-  setup(props) {
-    return () => {
-      const v = props.value
-      if (typeof v !== 'string') return String(v ?? '')
-      if (v.length <= TRUNCATE_LIMIT) return v
-      if (props.expandedKeys.has(props.fieldKey)) {
-        return [
-          v,
-          h(
-            'a',
-            {
-              class: 'expand-link',
-              onClick: (e) => {
-                e.preventDefault()
-                props.expandedKeys.delete(props.fieldKey)
-              }
-            },
-            ' 收起'
-          )
-        ]
-      }
-      return [
-        v.slice(0, TRUNCATE_LIMIT) + '...',
-        h(
-          'a',
-          {
-            class: 'expand-link',
-            onClick: (e) => {
-              e.preventDefault()
-              props.expandedKeys.add(props.fieldKey)
-            }
-          },
-          '展开'
-        )
-      ]
-    }
-  }
-})
+import { computed } from 'vue'
+import { CloseOutlined } from '@ant-design/icons-vue'
 
 const props = defineProps({
   visible: Boolean,
   item: Object,
-  type: String
+  type: String // 'node' | 'edge'
 })
 
 defineEmits(['close'])
-
-const expandedKeys = reactive(new Set())
-
-watch(
-  () => props.item,
-  () => {
-    expandedKeys.clear()
-  }
-)
-
-const isOverThreshold = (value) => typeof value === 'string' && value.length > STACK_THRESHOLD
-
-const rowClass = (value) => {
-  return isOverThreshold(value) ? 'detail-row detail-row--stack' : 'detail-row'
-}
 
 const title = computed(() => {
   return props.type === 'node' ? '节点详情' : '关系详情'
 })
 
+// 过滤边的属性，隐藏内部字段
 const filteredEdgeProperties = computed(() => {
-  if (!props.item?.data?.original?.properties) return {}
+  if (!props.item?.data?.original?.properties) {
+    return {}
+  }
+
   const properties = props.item.data.original.properties
   const filtered = {}
+
+  // 定义需要隐藏的内部字段
   const hiddenFields = ['source_id', 'target_id', '_id', 'truncate']
+
   Object.keys(properties).forEach((key) => {
-    if (!hiddenFields.includes(key)) filtered[key] = properties[key]
+    if (!hiddenFields.includes(key)) {
+      filtered[key] = properties[key]
+    }
   })
+
   return filtered
 })
 </script>
 
 <style scoped lang="less">
-.detail-panel {
-  position: absolute;
-  top: 60px;
-  left: 10px;
-  width: 280px;
-  max-height: calc(100% - 60px);
+.detail-card {
+  position: absolute; // 改为 fixed，避免影响父组件布局
+  top: 80px;
+  right: 24px;
+  width: 300px;
+  max-height: calc(100% - 100px);
   overflow-y: auto;
-  z-index: 100;
-  background: var(--color-trans-light);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-radius: 8px;
-  border: 1px solid var(--gray-100);
-  box-shadow: 0 0 4px 0px var(--shadow-2);
-  font-size: 13px;
-  user-select: auto;
+  z-index: 1000;
+  pointer-events: auto; // 确保可以交互
 
-  .panel-header {
-    display: flex;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--gray-200);
+  .info-card {
+    background: var(--color-bg-container);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px var(--shadow-3);
+    border-radius: 4px;
+    border: 1px solid var(--gray-200);
 
-    .panel-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--gray-1000);
+    :deep(.ant-card-body) {
+      padding: 12px;
     }
 
+    :deep(.ant-descriptions-item-label),
+    :deep(.ant-descriptions-item-content) {
+      font-size: 12px;
+      padding: 4px 8px !important;
+    }
+  }
+
+  .card-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+
     .close-icon {
-      margin-left: auto;
       cursor: pointer;
       color: var(--gray-500);
       transition: color 0.2s;
@@ -208,76 +145,25 @@ const filteredEdgeProperties = computed(() => {
     }
   }
 
-  .panel-body {
-    padding: 10px 14px;
+  .tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
   }
 }
 
-.detail-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--gray-50);
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &--stack {
-    flex-direction: column;
-  }
-
-  .detail-label {
-    flex-shrink: 0;
-    color: var(--gray-500);
-    font-size: 12px;
-    margin-right: 8px;
-    margin-bottom: 2px;
-  }
-
-  .detail-value {
-    text-align: right;
-    color: var(--gray-800);
-    font-size: 13px;
-    word-break: break-all;
-
-    &.detail-id {
-      font-size: 11px;
-      color: var(--gray-500);
-    }
-
-    :deep(.expand-link) {
-      cursor: pointer;
-      color: var(--main-700);
-      font-size: 12px;
-      white-space: nowrap;
-      margin-left: 2px;
-
-      &:hover {
-        color: var(--main-500);
-      }
-    }
-  }
+/* 卡片过渡动画 */
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
 }
 
-.detail-row--stack {
-  .detail-value {
-    text-align: left;
-  }
-}
-
-.slide-fade-left-enter-active {
-  transition: all 0.25s ease-out;
-}
-
-.slide-fade-left-leave-active {
+.slide-fade-leave-active {
   transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1);
 }
 
-.slide-fade-left-enter-from,
-.slide-fade-left-leave-to {
-  transform: translateX(-20px);
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateX(20px);
   opacity: 0;
 }
 </style>

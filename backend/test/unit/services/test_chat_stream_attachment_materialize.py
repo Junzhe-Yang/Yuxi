@@ -25,7 +25,7 @@ def test_build_attachment_storage_path_uses_thread_local_uploads_dir(tmp_path: P
     monkeypatch.setattr(cs.app_config, "save_dir", str(tmp_path))
 
     virtual_path, host_path = cs._build_attachment_storage_path(
-        uid="u-1",
+        user_id="u-1",
         thread_id="t-1",
         file_name="demo.txt",
     )
@@ -67,7 +67,6 @@ async def test_materialize_attachment_files_keeps_original_file_when_markdown_co
 
     result = await cs._materialize_attachment_files(
         thread_id="t-1",
-        uid="u-1",
         upload=upload,
         file_name="demo.pdf",
         file_content=b"%PDF-test",
@@ -104,7 +103,6 @@ async def test_materialize_attachment_files_writes_markdown_copy_when_conversion
 
     result = await cs._materialize_attachment_files(
         thread_id="t-1",
-        uid="u-1",
         upload=upload,
         file_name="demo.txt",
         file_content=b"hello",

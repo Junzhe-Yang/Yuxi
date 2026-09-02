@@ -97,20 +97,13 @@ async def test_run_stream_event_roundtrip(monkeypatch: pytest.MonkeyPatch):
 
     run_id = "run-1"
     seq1 = await run_queue_service.append_run_stream_event(run_id, "loading", {"items": [1]})
-    seq2 = await run_queue_service.append_run_stream_event(
-        run_id,
-        "finished",
-        {"chunk": {"status": "finished", "thread_id": "child-thread"}},
-    )
+    seq2 = await run_queue_service.append_run_stream_event(run_id, "finished", {"chunk": {"status": "finished"}})
 
     assert seq1 < seq2
 
     events = await run_queue_service.list_run_stream_events(run_id, after_seq="0-0", limit=100)
     assert [item["event_type"] for item in events] == ["loading", "finished"]
-    assert events[0]["payload"]["schema_version"] == 1
-    assert events[0]["payload"]["run_id"] == run_id
-    assert events[0]["payload"]["payload"] == {"items": [1]}
-    assert events[1]["payload"]["thread_id"] == "child-thread"
+    assert events[0]["payload"] == {"items": [1]}
 
     next_events = await run_queue_service.list_run_stream_events(run_id, after_seq=seq1, limit=100)
     assert len(next_events) == 1
@@ -122,6 +115,8 @@ async def test_run_stream_event_roundtrip(monkeypatch: pytest.MonkeyPatch):
 
 def test_normalize_after_seq_stream_id_only():
     assert run_queue_service.normalize_after_seq(None) == "0-0"
+    assert run_queue_service.normalize_after_seq(0) == "0-0"
+    assert run_queue_service.normalize_after_seq(5) == "0-0"
     assert run_queue_service.normalize_after_seq("1700000000000-3") == "1700000000000-3"
     assert run_queue_service.normalize_after_seq("12") == "0-0"
     assert run_queue_service.normalize_after_seq("bad-value") == "0-0"

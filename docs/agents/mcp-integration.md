@@ -18,9 +18,9 @@ MCP（Model Context Protocol）是扩展智能体能力的重要方式。系统�
 
 ```json
 {
-    "name": "custom-remote-mcp",
+    "name": "sequentialthinking",
     "transport": "streamable_http",
-    "url": "https://example.com/mcp"
+    "url": "https://remote.mcpservers.org/sequentialthinking/mcp"
 }
 ```
 

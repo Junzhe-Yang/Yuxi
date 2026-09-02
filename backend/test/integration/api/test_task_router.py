@@ -66,18 +66,18 @@ async def test_enqueue_document_creates_task(
         json={
             "database_name": f"pytest_task_router_{uuid.uuid4().hex[:8]}",
             "description": "Task router integration test",
-            "embedding_model_spec": "siliconflow-cn:Pro/BAAI/bge-m3",
-            "kb_type": "milvus",
+            "embed_model_name": "siliconflow/BAAI/bge-m3",
+            "kb_type": "lightrag",
             "additional_params": {},
         },
         headers=admin_headers,
     )
     assert create_response.status_code == 200, create_response.text
-    kb_id = create_response.json()["kb_id"]
+    db_id = create_response.json()["db_id"]
 
     try:
         enqueue_response = await test_client.post(
-            f"/api/knowledge/databases/{kb_id}/documents",
+            f"/api/knowledge/databases/{db_id}/documents",
             json={
                 "items": [],
                 "params": {"content_type": "file"},
@@ -119,4 +119,4 @@ async def test_enqueue_document_creates_task(
         else:
             pytest.fail("Task did not reach a terminal status within timeout window")
     finally:
-        await test_client.delete(f"/api/knowledge/databases/{kb_id}", headers=admin_headers)
+        await test_client.delete(f"/api/knowledge/databases/{db_id}", headers=admin_headers)

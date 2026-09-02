@@ -141,54 +141,6 @@ class Tasker:
         logger.info("Enqueued task {} ({})", task_id, name)
         return task
 
-    async def find_task_by_payload(
-        self,
-        *,
-        task_type: str,
-        payload_match: dict[str, Any],
-        statuses: set[str] | None = None,
-    ) -> Task | None:
-        async with self._lock:
-            return self._find_task_by_payload_locked(task_type, payload_match, statuses)
-
-    async def enqueue_unique_by_payload(
-        self,
-        *,
-        name: str,
-        task_type: str,
-        payload: dict[str, Any] | None = None,
-        coroutine: TaskCoroutine,
-        payload_match: dict[str, Any],
-        statuses: set[str] | None = None,
-    ) -> tuple[Task, bool]:
-        task_payload = payload or {}
-        async with self._lock:
-            existing = self._find_task_by_payload_locked(task_type, payload_match, statuses)
-            if existing:
-                return existing, False
-            task_id = uuid.uuid4().hex
-            task = Task(id=task_id, name=name, type=task_type, payload=task_payload)
-            self._tasks[task_id] = task
-            await self._persist_task(task)
-            await self._queue.put((task_id, coroutine))
-        logger.info("Enqueued task {} ({})", task.id, name)
-        return task, True
-
-    def _find_task_by_payload_locked(
-        self,
-        task_type: str,
-        payload_match: dict[str, Any],
-        statuses: set[str] | None,
-    ) -> Task | None:
-        for task in self._tasks.values():
-            if task.type != task_type:
-                continue
-            if statuses is not None and task.status not in statuses:
-                continue
-            if all(task.payload.get(key) == value for key, value in payload_match.items()):
-                return task
-        return None
-
     async def list_tasks(self, status: str | None = None, limit: int = 100) -> dict[str, Any]:
         async with self._lock:
             all_tasks = list(self._tasks.values())

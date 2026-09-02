@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import User
 
-# 使用 naive datetime 以匹配 PostgreSQL TIMESTAMP WITHOUT TIME ZONE 列
+# 使用 naive datetime 以兼容 PostgreSQL TIMESTAMP WITHOUT TIME ZONE 列
 _utc_now = dt.now(UTC).replace(tzinfo=None)
 
 
@@ -27,14 +27,14 @@ class UserRepository:
         result = await db.execute(select(User).where(User.id == id))
         return result.scalar_one_or_none()
 
-    async def get_by_uid(self, uid: str) -> User | None:
-        """根据 uid 获取用户"""
+    async def get_by_user_id(self, user_id: str) -> User | None:
+        """根据 user_id 获取用户"""
         async with pg_manager.get_async_session_context() as session:
-            return await self.get_by_uid_with_db(session, uid)
+            return await self.get_by_user_id_with_db(session, user_id)
 
-    async def get_by_uid_with_db(self, db: AsyncSession, uid: str) -> User | None:
+    async def get_by_user_id_with_db(self, db: AsyncSession, user_id: str) -> User | None:
         """使用指定的 db 获取用户"""
-        result = await db.execute(select(User).where(User.uid == uid))
+        result = await db.execute(select(User).where(User.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def get_by_phone(self, phone: str) -> User | None:
@@ -111,16 +111,16 @@ class UserRepository:
             if username:
                 import hashlib
 
-                hash_suffix = hashlib.sha256(user.uid.encode()).hexdigest()[:4]
+                hash_suffix = hashlib.sha256(user.user_id.encode()).hexdigest()[:4]
                 user.username = f"已注销用户-{hash_suffix}"
             if phone_number:
                 user.phone_number = None
         return True
 
-    async def exists_by_uid(self, uid: str) -> bool:
-        """检查 uid 是否存在"""
+    async def exists_by_user_id(self, user_id: str) -> bool:
+        """检查 user_id 是否存在"""
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(User.id).where(User.uid == uid))
+            result = await session.execute(select(User.id).where(User.user_id == user_id))
             return result.scalar_one_or_none() is not None
 
     async def exists_by_phone(self, phone: str) -> bool:
@@ -138,10 +138,10 @@ class UserRepository:
             result = await session.execute(query)
             return result.scalar() or 0
 
-    async def get_all_uids(self) -> list[str]:
-        """获取所有 uid"""
+    async def get_all_user_ids(self) -> list[str]:
+        """获取所有用户 ID"""
         async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(User.uid))
+            result = await session.execute(select(User.user_id))
             return [uid for (uid,) in result.all()]
 
     async def get_admin_count_in_department(self, department_id: int, exclude_user_id: int | None = None) -> int:

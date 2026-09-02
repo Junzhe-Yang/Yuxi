@@ -9,7 +9,7 @@ export const dashboardApi = {
   /**
    * 获取所有对话记录
    * @param {Object} params - 查询参数
-   * @param {string} params.uid - 用户 UID 过滤
+   * @param {string} params.user_id - 用户ID过滤
    * @param {string} params.agent_id - 智能体ID过滤
    * @param {string} params.status - 状态过滤 (active/deleted/all)
    * @param {number} params.limit - 每页数量
@@ -18,7 +18,7 @@ export const dashboardApi = {
    */
   getConversations: (params = {}) => {
     const queryParams = new URLSearchParams()
-    if (params.uid) queryParams.append('uid', params.uid)
+    if (params.user_id) queryParams.append('user_id', params.user_id)
     if (params.agent_id) queryParams.append('agent_id', params.agent_id)
     if (params.status) queryParams.append('status', params.status)
     if (params.limit) queryParams.append('limit', params.limit)

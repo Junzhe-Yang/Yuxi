@@ -41,9 +41,12 @@ def _is_valid_stream_seq(value: str) -> bool:
     return major.isdigit() and minor.isdigit()
 
 
-def normalize_after_seq(after_seq: str | None) -> str:
+def normalize_after_seq(after_seq: str | int | None) -> str:
     """Normalize after_seq cursor to redis stream id format."""
     if after_seq is None:
+        return "0-0"
+
+    if isinstance(after_seq, int):
         return "0-0"
 
     text = str(after_seq).strip()
@@ -53,32 +56,6 @@ def normalize_after_seq(after_seq: str | None) -> str:
     if _is_valid_stream_seq(text):
         return text
     return "0-0"
-
-
-def build_run_event_envelope(
-    *,
-    run_id: str,
-    event_type: str,
-    payload: dict | None = None,
-    thread_id: str | None = None,
-    created_at: str | None = None,
-) -> dict:
-    return {
-        "schema_version": 1,
-        "run_id": run_id,
-        "thread_id": thread_id,
-        "event": event_type,
-        "payload": payload or {},
-        "created_at": created_at or datetime.now(tz=UTC).isoformat(),
-    }
-
-
-def _payload_thread_id(payload: dict | None) -> str | None:
-    chunk = payload.get("chunk") if isinstance(payload, dict) else None
-    if not isinstance(chunk, dict):
-        return None
-    thread_id = chunk.get("thread_id")
-    return thread_id.strip() if isinstance(thread_id, str) and thread_id.strip() else None
 
 
 async def get_redis_client():
@@ -185,22 +162,13 @@ async def clear_cancel_signal(run_id: str) -> None:
         logger.warning(f"Failed to clear cancel signal for run {run_id}: {e}")
 
 
-async def append_run_stream_event(run_id: str, event_type: str, payload: dict, *, thread_id: str | None = None) -> str:
+async def append_run_stream_event(run_id: str, event_type: str, payload: dict) -> str:
     redis = await get_redis_client()
     key = _event_stream_key(run_id)
-    now = datetime.now(tz=UTC)
-    now_ms = int(now.timestamp() * 1000)
-    event_thread_id = thread_id or _payload_thread_id(payload)
-    envelope = build_run_event_envelope(
-        run_id=run_id,
-        event_type=event_type,
-        payload=payload or {},
-        thread_id=event_thread_id,
-        created_at=now.isoformat(),
-    )
+    now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     fields = {
         "event_type": event_type,
-        "payload": json.dumps(envelope, ensure_ascii=False),
+        "payload": json.dumps(payload or {}, ensure_ascii=False),
         "ts": str(now_ms),
     }
 
@@ -222,7 +190,7 @@ async def list_run_stream_events(
 ) -> list[dict]:
     redis = await get_redis_client()
     key = _event_stream_key(run_id)
-    start = "-" if after_seq in {"0-0", ""} else f"({after_seq}"
+    start = "-" if after_seq in {"0", "0-0", ""} else f"{after_seq}"
     rows = await redis.xrange(key, min=start, max="+", count=limit)
     events = []
 
@@ -233,22 +201,11 @@ async def list_run_stream_events(
         except Exception:
             payload = {}
 
-        event_type = fields.get("event_type") or "message"
-        if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-            payload = {
-                "schema_version": 1,
-                "run_id": run_id,
-                "thread_id": None,
-                "event": event_type,
-                "payload": payload if isinstance(payload, dict) else {},
-                "created_at": None,
-            }
-
         ts_value = fields.get("ts")
         events.append(
             {
                 "seq": str(event_id),
-                "event_type": event_type,
+                "event_type": fields.get("event_type") or "message",
                 "payload": payload,
                 "ts": int(ts_value) if ts_value else None,
             }

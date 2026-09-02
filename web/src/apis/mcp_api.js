@@ -114,6 +114,10 @@ export const toggleMcpServerTool = async (serverName, toolName) => {
   )
 }
 
+// =============================================================================
+// === 导出为对象形式（兼容现有代码风格）===
+// =============================================================================
+
 export const mcpApi = {
   getMcpServers,
   getMcpServer,
